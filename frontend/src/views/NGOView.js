@@ -1,5 +1,6 @@
 import { MatchingService } from '../services/matchingService.js';
 import { Toast } from '../components/Toast.js';
+import { getTimeBasedGreeting, getFirstName } from '../utils/greeting.js';
 
 function getBadgeClass(status) {
   if (status === 'Available') return 'badge-available';
@@ -9,18 +10,31 @@ function getBadgeClass(status) {
 
 function getSidebarHTML() {
   if (!window.currentUser) return '';
+  const firstName = getFirstName(window.currentUser.name) || 'Partner';
+  const initial = firstName.charAt(0).toUpperCase();
+
   return `
     <aside class="sidebar-profile">
       <div class="glass-panel profile-card">
         <div class="profile-header">
-          <div class="profile-avatar">${window.currentUser.email.charAt(0).toUpperCase()}</div>
-          <h3 class="profile-name">${window.currentUser.email}</h3>
-          <span class="profile-role-badge">${window.currentUser.role}</span>
+          <div class="profile-avatar" style="background:#e8def4;color:#5c4779;">${initial}</div>
+          <h3 class="profile-name">${window.currentUser.name || window.currentUser.email}</h3>
+          <span class="profile-role-badge" style="background:#e8def4;color:#5c4779;">NGO Partner</span>
         </div>
         <div class="profile-stats">
           <div class="profile-detail">
-            <span>Location</span>
+            <span>Base State</span>
             <strong>${window.currentUser.state}</strong>
+          </div>
+          ${window.currentUser.age ? `
+            <div class="profile-detail" style="margin-top:8px;">
+              <span>Age</span>
+              <strong>${window.currentUser.age}</strong>
+            </div>
+          ` : ''}
+          <div class="profile-detail" style="margin-top:8px;">
+            <span>Partner Status</span>
+            <strong style="color:#5c4779;">Verified NGO</strong>
           </div>
         </div>
       </div>
@@ -31,6 +45,7 @@ function getSidebarHTML() {
 export const NGOView = {
   async render() {
     const availableMatches = await MatchingService.getMatchesForNGO(window.currentUser.state);
+    const greeting = getTimeBasedGreeting(window.currentUser.name);
     
     let listHtml = '';
     if (availableMatches.length === 0) {
@@ -67,8 +82,9 @@ export const NGOView = {
         ${getSidebarHTML()}
         <div class="main-content">
           <div class="view-header">
-            <h2>NGO / Volunteer Dashboard</h2>
-            <p>Find resources available near you.</p>
+            <span class="auth-badge" style="background:#e8def4;color:#5c4779;">NGO & Volunteer Hub</span>
+            <h2 class="font-display">${greeting} <span class="wave">✦</span></h2>
+            <p>Find and request available community resources near you (Base State: <strong>${window.currentUser.state}</strong>).</p>
           </div>
           
           <div class="glass-panel">

@@ -1,15 +1,25 @@
-const bcrypt   = require('bcrypt');
+const bcrypt = require('bcrypt');
 const { v4: uuidv4 } = require('uuid');
-const validator = require('validator');
 const AuthQueries = require('../queries/authQueries');
-const OTPService  = require('./otpService');
-const { sendOTPEmail } = require('./emailService');
 
-const BCRYPT_ROUNDS   = 10;
-const MAX_LOGIN_FAILS = 5;
-const LOCK_DURATION_MINUTES = 15;
+const BCRYPT_ROUNDS = 10;
 
-// Password must be ≥ 8 chars, contain upper, lower, digit
+// KindSwap ID rules: 3-30 chars, alphanumeric + underscores, no spaces
+function validateKindswapId(kindswapId) {
+  if (!kindswapId || typeof kindswapId !== 'string') {
+    throw new Error('Please enter a KindSwap ID.');
+  }
+  const trimmed = kindswapId.trim();
+  if (trimmed.length < 3 || trimmed.length > 30) {
+    throw new Error('KindSwap ID must be between 3 and 30 characters.');
+  }
+  if (!/^[a-zA-Z0-9_]+$/.test(trimmed)) {
+    throw new Error('KindSwap ID can only contain letters, numbers, and underscores.');
+  }
+  return trimmed;
+}
+
+// Password rules: ≥ 8 chars, uppercase, lowercase, number
 function validatePassword(password) {
   if (!password || password.length < 8) {
     throw new Error('Password must be at least 8 characters long.');
@@ -26,23 +36,36 @@ function validatePassword(password) {
 }
 
 const AuthService = {
-
-  // ─── Registration ──────────────────────────────────────────────────────────
+  /**
+   * Check whether a KindSwap ID is available
+   */
+  async checkIdAvailability(kindswapId) {
+    try {
+      const normalized = validateKindswapId(kindswapId);
+      const exists = await AuthQueries.checkKindswapIdExists(normalized);
+      if (exists) {
+        return {
+          available: false,
+          message: 'This KindSwap ID is already taken.'
+        };
+      }
+      return {
+        available: true,
+        message: 'KindSwap ID is available ✓'
+      };
+    } catch (err) {
+      return {
+        available: false,
+        message: err.message
+      };
+    }
+  },
 
   /**
-   * Step 1: Register — validate, hash password, create unverified account, send OTP.
-   * Returns { message } — never returns password hash or OTP.
+   * Register a new user with KindSwap ID + Password (No OTP!)
    */
-  async register(email, password, confirmPassword, name, role, state) {
-    // --- Input validation (server-side) ---
-    if (!email || !password || !role || !state) {
-      throw new Error('All fields are required.');
-    }
-    if (!validator.isEmail(email)) {
-      throw new Error('Please enter a valid email address.');
-    }
-    email = validator.normalizeEmail(email);
-
+  async register({ kindswapId, password, confirmPassword, role, state }) {
+    const validId = validateKindswapId(kindswapId);
     validatePassword(password);
 
     if (password !== confirmPassword) {
@@ -54,155 +77,132 @@ const AuthService = {
       throw new Error('Invalid role selected.');
     }
 
-    // Admin role requires secret code — validated in controller before this call
-    // (We keep that separation: controller validates the code, service handles DB)
-
-    // --- Check duplicate email ---
-    const existing = await AuthQueries.findUserByEmail(email);
-    if (existing) {
-      // Use a timing-safe generic message to prevent email enumeration
-      throw new Error('An account with this email already exists.');
+    // Check availability
+    const exists = await AuthQueries.checkKindswapIdExists(validId);
+    if (exists) {
+      throw new Error('This KindSwap ID is already taken. Please choose another one.');
     }
 
-    // --- Hash password ---
+    // Hash password
     const passwordHash = await bcrypt.hash(password, BCRYPT_ROUNDS);
 
-    // --- Create user (email_verified = false) ---
+    // Create user record
     const userId = uuidv4();
-    await AuthQueries.createUser({ id: userId, email, name: name || null, role, state });
-    await AuthQueries.createLogin(email, passwordHash);
-
-    // --- Generate OTP, send email ---
-    const otp = await OTPService.createOTP(email, 'registration');
-    // sendOTPEmail is fire-and-forget for UX, but we await to catch config errors
     try {
-      await sendOTPEmail(email, otp, name);
-    } catch (emailErr) {
-      console.error('[EmailService] Failed to send OTP email:', emailErr.message);
-      // Don't expose email error to client — account was still created
-      // The user can use "Resend OTP" to trigger another send
+      await AuthQueries.createUser({
+        id: userId,
+        kindswap_id: validId,
+        password_hash: passwordHash,
+        name: null,
+        role,
+        state: state || 'India',
+        city: null,
+        email: null
+      });
+    } catch (err) {
+      if (err.code === 'ER_DUP_ENTRY') {
+        throw new Error('This KindSwap ID is already taken. Please choose another one.');
+      }
+      throw err;
     }
 
-    return { message: 'Account created. Please check your email for a 6-digit verification code.' };
+    // Return safe user object for immediate login session creation
+    return {
+      id: userId,
+      kindswap_id: validId,
+      name: null,
+      age: null,
+      city: null,
+      state: state || 'India',
+      role
+    };
   },
-
-  // ─── OTP Verification ──────────────────────────────────────────────────────
 
   /**
-   * Step 2: Verify OTP — confirm email, allow login.
+   * Login with KindSwap ID + Password
    */
-  async verifyOTP(email, otp) {
-    if (!email || !otp) {
-      throw new Error('Email and OTP are required.');
-    }
-    email = validator.normalizeEmail(email);
-
-    // Check account exists
-    const user = await AuthQueries.findUserByEmail(email);
-    if (!user) {
-      throw new Error('Invalid or expired verification code. Please request a new one.');
+  async login(kindswapId, password) {
+    if (!kindswapId || !password) {
+      throw new Error('KindSwap ID and password are required.');
     }
 
-    // Check not already verified
-    const loginRow = await AuthQueries.findLoginByEmail(email);
-    if (loginRow && loginRow.email_verified) {
-      throw new Error('This account is already verified. Please log in.');
-    }
-
-    // Delegate OTP check to OTPService
-    await OTPService.verifyOTP(email, otp, 'registration');
-
-    // Mark email as verified
-    await AuthQueries.setEmailVerified(email);
-
-    // Return safe user object
-    return { id: user.id, email: user.email, name: user.name, role: user.role, state: user.state };
-  },
-
-  // ─── Resend OTP ────────────────────────────────────────────────────────────
-
-  async resendOTP(email) {
-    if (!email) throw new Error('Email is required.');
-    email = validator.normalizeEmail(email);
-
-    const user = await AuthQueries.findUserByEmail(email);
-    if (!user) {
-      // Generic message — don't reveal whether email exists
-      return { message: 'If an unverified account exists, a new code has been sent.' };
-    }
-
-    const loginRow = await AuthQueries.findLoginByEmail(email);
-    if (loginRow && loginRow.email_verified) {
-      throw new Error('This account is already verified. Please log in.');
-    }
-
-    // Check cooldown
-    await OTPService.checkResendCooldown(email);
-
-    // Generate + send new OTP
-    const otp = await OTPService.createOTP(email, 'registration');
-    try {
-      await sendOTPEmail(email, otp, user.name);
-    } catch (emailErr) {
-      console.error('[EmailService] Failed to resend OTP:', emailErr.message);
-    }
-
-    return { message: 'A new verification code has been sent to your email.' };
-  },
-
-  // ─── Login ─────────────────────────────────────────────────────────────────
-
-  /**
-   * Verify email + password, return safe user object.
-   * Handles: unverified, locked, wrong password, failed attempts.
-   */
-  async login(email, password) {
-    if (!email || !password) {
-      throw new Error('Email and password are required.');
-    }
-    if (!validator.isEmail(email)) {
-      throw new Error('INVALID_CREDENTIALS'); // caught in controller → 401
-    }
-    email = validator.normalizeEmail(email);
-
-    const loginRow = await AuthQueries.findLoginByEmail(email);
-
-    // Use constant-time-like generic error to prevent enumeration
-    if (!loginRow) {
+    const user = await AuthQueries.findUserByKindswapId(kindswapId);
+    if (!user || !user.password_hash) {
       throw new Error('INVALID_CREDENTIALS');
     }
 
-    // Check if account is locked
-    if (loginRow.locked_until && new Date(loginRow.locked_until) > new Date()) {
-      const remaining = Math.ceil((new Date(loginRow.locked_until) - Date.now()) / 60000);
-      throw new Error(`Account temporarily locked. Try again in ${remaining} minute${remaining === 1 ? '' : 's'}.`);
-    }
-
-    // Check email verified
-    if (!loginRow.email_verified) {
-      throw new Error('EMAIL_NOT_VERIFIED');
-    }
-
-    // Compare password
-    const isMatch = await bcrypt.compare(password, loginRow.password_hash);
+    const isMatch = await bcrypt.compare(password, user.password_hash);
     if (!isMatch) {
-      const newCount = (loginRow.failed_attempts || 0) + 1;
-      if (newCount >= MAX_LOGIN_FAILS) {
-        const lockedUntil = new Date(Date.now() + LOCK_DURATION_MINUTES * 60 * 1000);
-        await AuthQueries.lockAccount(email, lockedUntil);
-        throw new Error(`Too many failed attempts. Account locked for ${LOCK_DURATION_MINUTES} minutes.`);
-      }
-      await AuthQueries.updateFailedAttempts(email, newCount);
-      const remaining = MAX_LOGIN_FAILS - newCount;
-      throw new Error(`Incorrect password. ${remaining} attempt${remaining === 1 ? '' : 's'} remaining.`);
+      throw new Error('INVALID_CREDENTIALS');
     }
 
-    // Successful login — reset failed attempts
-    await AuthQueries.resetFailedAttempts(email);
+    // Return safe user object
+    return {
+      id: user.id,
+      kindswap_id: user.kindswap_id,
+      email: user.email,
+      name: user.name,
+      age: user.age,
+      city: user.city,
+      state: user.state,
+      role: user.role
+    };
+  },
 
-    const user = await AuthQueries.findUserByEmail(email);
-    // Return only safe fields — never password_hash
-    return { id: user.id, email: user.email, name: user.name, role: user.role, state: user.state };
+  /**
+   * Update profile (Page 2: Full Name, Age, City/Location)
+   */
+  async updateProfile(userId, { name, age, city, state }) {
+    if (!userId) {
+      throw new Error('User ID is required.');
+    }
+
+    // Full name validation
+    if (!name || typeof name !== 'string' || name.trim().length === 0) {
+      throw new Error('Please enter your full name.');
+    }
+    const trimmedName = name.trim();
+    if (trimmedName.length > 100) {
+      throw new Error('Full name cannot exceed 100 characters.');
+    }
+
+    // Age validation
+    const ageNum = parseInt(age, 10);
+    if (isNaN(ageNum) || ageNum < 5 || ageNum > 120) {
+      throw new Error('Please enter a valid age between 5 and 120.');
+    }
+
+    // City / Location validation
+    let trimmedCity = null;
+    if (city && typeof city === 'string' && city.trim().length > 0) {
+      trimmedCity = city.trim();
+      if (trimmedCity.length > 100) {
+        throw new Error('City/Location cannot exceed 100 characters.');
+      }
+    }
+
+    await AuthQueries.updateUserProfile(userId, {
+      name: trimmedName,
+      age: ageNum,
+      city: trimmedCity,
+      state: state || undefined
+    });
+
+    const refreshed = await AuthQueries.findUserById(userId);
+    if (!refreshed) {
+      throw new Error('User not found.');
+    }
+
+    return {
+      id: refreshed.id,
+      kindswap_id: refreshed.kindswap_id,
+      email: refreshed.email,
+      name: refreshed.name,
+      age: refreshed.age,
+      city: refreshed.city,
+      state: refreshed.state,
+      role: refreshed.role
+    };
   }
 };
 

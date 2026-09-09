@@ -2,6 +2,7 @@ import { ResourceService } from '../services/resourceService.js';
 import { MatchingService } from '../services/matchingService.js';
 import { StorageService } from '../db/storage.js';
 import { Toast } from '../components/Toast.js';
+import { getTimeBasedGreeting, getFirstName } from '../utils/greeting.js';
 
 function getBadgeClass(status) {
   if (status === 'Available') return 'badge-available';
@@ -11,18 +12,31 @@ function getBadgeClass(status) {
 
 function getSidebarHTML() {
   if (!window.currentUser) return '';
+  const firstName = getFirstName(window.currentUser.name) || 'Friend';
+  const initial = firstName.charAt(0).toUpperCase();
+
   return `
     <aside class="sidebar-profile">
       <div class="glass-panel profile-card">
         <div class="profile-header">
-          <div class="profile-avatar">${window.currentUser.email.charAt(0).toUpperCase()}</div>
-          <h3 class="profile-name">${window.currentUser.email}</h3>
-          <span class="profile-role-badge">${window.currentUser.role}</span>
+          <div class="profile-avatar">${initial}</div>
+          <h3 class="profile-name">${window.currentUser.name || window.currentUser.email}</h3>
+          <span class="profile-role-badge">Donor</span>
         </div>
         <div class="profile-stats">
           <div class="profile-detail">
             <span>Location</span>
             <strong>${window.currentUser.state}</strong>
+          </div>
+          ${window.currentUser.age ? `
+            <div class="profile-detail" style="margin-top:8px;">
+              <span>Age</span>
+              <strong>${window.currentUser.age}</strong>
+            </div>
+          ` : ''}
+          <div class="profile-detail" style="margin-top:8px;">
+            <span>Verified Status</span>
+            <strong style="color:#4a7c3b;">Active Member</strong>
           </div>
         </div>
       </div>
@@ -38,6 +52,7 @@ export const DonorView = {
 
     const activeDonations = donations.filter(d => d.status !== 'Delivered').length;
     const deliveredDonations = donations.filter(d => d.status === 'Delivered').length;
+    const greeting = getTimeBasedGreeting(window.currentUser.name);
 
     let listHtml = '';
     if (donations.length === 0) {
@@ -70,8 +85,9 @@ export const DonorView = {
         ${getSidebarHTML()}
         <div class="main-content">
           <div class="view-header">
-            <h2>Donor Dashboard</h2>
-            <p>Manage your donations and help your community.</p>
+            <span class="auth-badge">Donor Hub</span>
+            <h2 class="font-display">${greeting} <span class="wave">✦</span></h2>
+            <p>Manage your donations, list new items, and track your giving impact.</p>
           </div>
           
           <div class="dashboard-stats">

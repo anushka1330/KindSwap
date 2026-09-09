@@ -1,7 +1,9 @@
 import { AuthService } from '../services/authService.js';
+import { ResourceService } from '../services/resourceService.js';
 import { INDIA_SVG_PATH } from '../assets/indiaPath.js';
 import { LocationService } from '../services/locationService.js';
 import { InteractiveMap } from '../components/InteractiveMap.js';
+import { getTimeBasedGreeting, getFirstName } from '../utils/greeting.js';
 
 // SVG Icons matching Lucide
 const icons = {
@@ -23,7 +25,9 @@ const icons = {
   search: `<svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>`,
   menu: `<svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="4" x2="20" y1="12" y2="12"/><line x1="4" x2="20" y1="6" y2="6"/><line x1="4" x2="20" y1="18" y2="18"/></svg>`,
   close: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>`,
-  star: `<svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>`
+  star: `<svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>`,
+  logOut: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" x2="9" y1="12" y2="12"/></svg>`,
+  logIn: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><polyline points="10 17 15 12 10 7"/><line x1="15" x2="3" y1="12" y2="12"/></svg>`
 };
 
 // State store
@@ -36,13 +40,30 @@ let dashboardMapInstance = null;
 let modalMapInstance = null;
 let activeMapFilter = 'all';
 
+// Live dynamic stats and donations (all starting from 0, workable via ResourceService)
+let liveStats = {
+  itemsAvailable: 0,
+  activeRequests: 0,
+  nearbyHelpers: 0,
+  yourImpact: 0
+};
+let liveDonations = [];
 
 export const HomeView = {
   render() {
     const user = window.currentUser;
-    const displayName = user ? (user.name || user.email.split('@')[0]) : 'Alex';
-    const userInitials = user ? (user.name ? user.name.split(' ').map(n=>n[0]).join('').toUpperCase().slice(0,2) : user.email.slice(0,2).toUpperCase()) : 'AM';
-    const userRoleDesc = user ? (user.role === 'ngo' ? 'NGO Partner' : user.role === 'admin' ? 'Community Admin' : 'Trusted member · 4.9') : 'Trusted member · 4.9';
+    if (user && user.role === 'ngo') {
+      activeRole = 'NGO partner';
+    } else {
+      activeRole = 'Donor';
+    }
+    if (user && user.state) {
+      activeLocation = `${user.state}, India`;
+    }
+
+    const displayName = user ? (user.name || user.email.split('@')[0]) : 'Friend';
+    const userInitials = user ? (user.name ? user.name.split(' ').filter(Boolean).map(n=>n[0]).join('').toUpperCase().slice(0,2) : user.email.slice(0,2).toUpperCase()) : 'AS';
+    const userRoleDesc = user ? (user.role === 'ngo' ? 'NGO Partner' : user.role === 'admin' ? 'Community Admin' : 'Donor · Verified Member') : 'Community Member';
 
     return `
       <div class="app-shell">
@@ -113,7 +134,7 @@ export const HomeView = {
               ${icons.heartHandshake}
               <div>
                 <p style="font-weight:700;color:var(--ink);">You’re making a difference</p>
-                <p style="margin-top:4px;line-height:1.4;color:var(--muted-ink);">3 swaps completed this month.</p>
+                <p id="sidebar-swaps-note" style="margin-top:4px;line-height:1.4;color:var(--muted-ink);">${liveStats.yourImpact} swaps completed this month.</p>
               </div>
             </div>
 
@@ -122,11 +143,23 @@ export const HomeView = {
               <span>Settings</span>
             </button>
 
+            ${user ? `
+            <button class="nav-item nav-item-logout" id="sidebar-logout-btn" data-nav="Logout">
+              ${icons.logOut}
+              <span>Logout</span>
+            </button>
+            ` : `
+            <button class="nav-item" id="sidebar-login-btn" data-nav="Login">
+              ${icons.logIn}
+              <span>Sign In</span>
+            </button>
+            `}
+
             <!-- User Profile Row -->
             <div class="profile-row" id="profile-row-btn" title="Click for account options">
               <div class="profile-avatar">${userInitials}</div>
               <div style="min-width:0;flex:1;">
-                <p style="font-size:13px;font-weight:700;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${user ? displayName : 'Alex Morgan'}</p>
+                <p style="font-size:13px;font-weight:700;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${user ? displayName : 'Friend'}</p>
                 <p style="font-size:11px;color:var(--muted-ink);">${userRoleDesc}</p>
               </div>
               <div style="color:var(--muted-ink);">${icons.chevronDown}</div>
@@ -171,7 +204,7 @@ export const HomeView = {
 
           <!-- Content Wrapper -->
           <div class="content-wrap" id="main-view-content">
-            ${HomeView.renderOverviewContent(displayName)}
+            ${HomeView.renderOverviewContent(user)}
           </div>
         </main>
 
@@ -182,14 +215,17 @@ export const HomeView = {
     `;
   },
 
-  renderOverviewContent(displayName) {
+  renderOverviewContent(user) {
+    const todayStr = new Intl.DateTimeFormat('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' }).format(new Date());
+    const greetingText = getTimeBasedGreeting(user ? user.name : 'Alex');
+
     return `
       <!-- Page Heading / Hero -->
       <div class="page-heading">
         <div>
-          <p class="eyebrow">Tuesday, September 8, 2026</p>
+          <p class="eyebrow">${todayStr}</p>
           <h1 class="font-display text-ink" style="font-size: clamp(32px, 3.5vw, 42px); font-weight: 700; line-height: 1.05; letter-spacing: -0.05em;">
-            Good morning, ${displayName} <span class="wave">✦</span>
+            ${greetingText} <span class="wave">✦</span>
           </h1>
           <p style="margin-top: 12px; max-width: 580px; font-size: 15px; line-height: 1.6; color: var(--muted-ink);">
             Small swaps make a big difference. Here’s what’s happening in your community today.
@@ -212,17 +248,17 @@ export const HomeView = {
         <button class="${activeRole === 'NGO partner' ? 'role-active' : ''}" data-role="NGO partner">NGO partner</button>
       </div>
 
-      <!-- 4 Stats Cards Grid -->
+      <!-- 4 Stats Cards Grid (Workable, Starting from 0) -->
       <section class="stats-grid">
         <!-- Card 1 -->
         <div class="stat-card stat-yellow">
           <div style="display:flex; justify-content:space-between; align-items:flex-start;">
             <div class="stat-icon">${icons.gift}</div>
-            <span style="font-size:12px; font-weight:700; color:#7e756a;">↗ 8%</span>
+            <span id="stat-trend-items" style="font-size:12px; font-weight:700; color:#7e756a;">${liveStats.itemsAvailable > 0 ? '↗ Active' : 'Ready to give'}</span>
           </div>
           <div style="margin-top:20px;">
             <p style="font-size:13px; font-weight:600; color:#7e756a;">Items available</p>
-            <p class="font-display text-ink" style="font-size:31px; font-weight:700; letter-spacing:-0.05em; margin-top:2px;">24</p>
+            <p class="font-display text-ink" id="stat-items-available" style="font-size:31px; font-weight:700; letter-spacing:-0.05em; margin-top:2px;">${liveStats.itemsAvailable}</p>
           </div>
         </div>
 
@@ -230,11 +266,11 @@ export const HomeView = {
         <div class="stat-card stat-lavender">
           <div style="display:flex; justify-content:space-between; align-items:flex-start;">
             <div class="stat-icon">${icons.heartHandshake}</div>
-            <span style="font-size:12px; font-weight:700; color:#7e756a;">↗ 3 new</span>
+            <span id="stat-trend-requests" style="font-size:12px; font-weight:700; color:#7e756a;">${liveStats.activeRequests > 0 ? '↗ Needs match' : '0 requests'}</span>
           </div>
           <div style="margin-top:20px;">
             <p style="font-size:13px; font-weight:600; color:#7e756a;">Active requests</p>
-            <p class="font-display text-ink" style="font-size:31px; font-weight:700; letter-spacing:-0.05em; margin-top:2px;">12</p>
+            <p class="font-display text-ink" id="stat-active-requests" style="font-size:31px; font-weight:700; letter-spacing:-0.05em; margin-top:2px;">${liveStats.activeRequests}</p>
           </div>
         </div>
 
@@ -242,11 +278,11 @@ export const HomeView = {
         <div class="stat-card stat-sage">
           <div style="display:flex; justify-content:space-between; align-items:flex-start;">
             <div class="stat-icon">${icons.users}</div>
-            <span style="font-size:12px; font-weight:700; color:#7e756a;">↗ 12 online</span>
+            <span id="stat-trend-helpers" style="font-size:12px; font-weight:700; color:#7e756a;">Circle live</span>
           </div>
           <div style="margin-top:20px;">
             <p style="font-size:13px; font-weight:600; color:#7e756a;">Nearby helpers</p>
-            <p class="font-display text-ink" style="font-size:31px; font-weight:700; letter-spacing:-0.05em; margin-top:2px;">48</p>
+            <p class="font-display text-ink" id="stat-nearby-helpers" style="font-size:31px; font-weight:700; letter-spacing:-0.05em; margin-top:2px;">${liveStats.nearbyHelpers}</p>
           </div>
         </div>
 
@@ -254,11 +290,11 @@ export const HomeView = {
         <div class="stat-card stat-sand">
           <div style="display:flex; justify-content:space-between; align-items:flex-start;">
             <div class="stat-icon">${icons.swap}</div>
-            <span style="font-size:12px; font-weight:700; color:#7e756a;">↗ +4 swaps</span>
+            <span id="stat-trend-impact" style="font-size:12px; font-weight:700; color:#7e756a;">${liveStats.yourImpact > 0 ? `+${liveStats.yourImpact} swaps` : 'Start sharing'}</span>
           </div>
           <div style="margin-top:20px;">
             <p style="font-size:13px; font-weight:600; color:#7e756a;">Your impact</p>
-            <p class="font-display text-ink" style="font-size:31px; font-weight:700; letter-spacing:-0.05em; margin-top:2px;">16</p>
+            <p class="font-display text-ink" id="stat-your-impact" style="font-size:31px; font-weight:700; letter-spacing:-0.05em; margin-top:2px;">${liveStats.yourImpact}</p>
           </div>
         </div>
       </section>
@@ -278,45 +314,8 @@ export const HomeView = {
             </button>
           </div>
 
-          <div class="item-list">
-            <!-- Item 1 -->
-            <button class="item-row" data-item="Children's books">
-              <div class="item-icon lavender">${icons.bookOpen}</div>
-              <div style="min-width:0; flex:1; text-align:left;">
-                <div style="display:flex; align-items:center; gap:8px;">
-                  <p style="font-size:14px; font-weight:700; color:var(--ink);">Children's books</p>
-                  <span class="match-pill">Great match</span>
-                </div>
-                <p style="font-size:12px; color:var(--muted-ink); margin-top:2px;">12 items · 1.2 km away</p>
-              </div>
-              <div style="color:var(--muted-ink);">${icons.swap}</div>
-            </button>
-
-            <!-- Item 2 -->
-            <button class="item-row" data-item="Warm winter coats">
-              <div class="item-icon butter">${icons.shirt}</div>
-              <div style="min-width:0; flex:1; text-align:left;">
-                <div style="display:flex; align-items:center; gap:8px;">
-                  <p style="font-size:14px; font-weight:700; color:var(--ink);">Warm winter coats</p>
-                  <span class="match-pill">Needed nearby</span>
-                </div>
-                <p style="font-size:12px; color:var(--muted-ink); margin-top:2px;">4 items · 2.4 km away</p>
-              </div>
-              <div style="color:var(--muted-ink);">${icons.swap}</div>
-            </button>
-
-            <!-- Item 3 -->
-            <button class="item-row" data-item="Pantry staples">
-              <div class="item-icon sage">${icons.package}</div>
-              <div style="min-width:0; flex:1; text-align:left;">
-                <div style="display:flex; align-items:center; gap:8px;">
-                  <p style="font-size:14px; font-weight:700; color:var(--ink);">Pantry staples</p>
-                  <span class="match-pill">Fresh request</span>
-                </div>
-                <p style="font-size:12px; color:var(--muted-ink); margin-top:2px;">8 items · 3.1 km away</p>
-              </div>
-              <div style="color:var(--muted-ink);">${icons.swap}</div>
-            </button>
+          <div class="item-list" id="meaningful-matches-container">
+            ${HomeView.renderMatchesList()}
           </div>
 
           <!-- Banner -->
@@ -364,7 +363,7 @@ export const HomeView = {
               <span class="mini-avatar" style="background:#A9B98A; margin-right:-6px;">A</span>
               <span class="mini-avatar more-avatar">+18</span>
             </div>
-            <span><b>24</b> active exchanges across India</span>
+            <span id="map-footer-count"><b>${liveStats.itemsAvailable}</b> active exchanges across India</span>
             <button id="explore-map-link">
               <span>Explore map</span>
               <span>→</span>
@@ -406,6 +405,122 @@ export const HomeView = {
         </span>
       </footer>
     `;
+  },
+
+  renderMatchesList() {
+    const available = liveDonations.filter(d => d.status === 'Available');
+    if (available.length === 0) {
+      return `
+        <div class="matches-zero-state" style="padding:24px 16px;text-align:center;background:#faf7f2;border:1px dashed #eee7dc;border-radius:14px;margin:8px 0;">
+          <div style="font-size:26px;margin-bottom:6px;">🎁</div>
+          <p style="font-size:14px;font-weight:700;color:var(--ink);">No items shared in your circle yet</p>
+          <p style="font-size:12px;color:var(--muted-ink);margin:4px 0 14px;line-height:1.4;">
+            Be the very first neighbor to start an exchange and help someone in need.
+          </p>
+          <button class="primary-button" id="matches-zero-start-btn" style="margin:0 auto;padding:8px 16px;font-size:13px;">
+            ${icons.plus}
+            <span>List something to share</span>
+          </button>
+        </div>
+      `;
+    }
+
+    return available.slice(0, 6).map(item => {
+      const cat = (item.category || '').toLowerCase();
+      const catIcon = cat.includes('book') ? icons.bookOpen :
+                      (cat.includes('cloth') ? icons.shirt : icons.package);
+      const catColor = cat.includes('book') ? 'lavender' :
+                       (cat.includes('cloth') ? 'butter' : 'sage');
+      const qtyText = `${item.quantity || 1} item${(item.quantity || 1) > 1 ? 's' : ''}`;
+      const stateText = item.state ? ` · ${item.state}` : '';
+
+      return `
+        <button class="item-row" data-donation-id="${item.id}">
+          <div class="item-icon ${catColor}">${catIcon}</div>
+          <div style="min-width:0; flex:1; text-align:left;">
+            <div style="display:flex; align-items:center; gap:8px;">
+              <p style="font-size:14px; font-weight:700; color:var(--ink);">${item.title}</p>
+              <span class="match-pill">Available</span>
+            </div>
+            <p style="font-size:12px; color:var(--muted-ink); margin-top:2px;">${qtyText}${stateText}</p>
+          </div>
+          <div style="color:var(--muted-ink);">${icons.swap}</div>
+        </button>
+      `;
+    }).join('');
+  },
+
+  updateStatsDisplay() {
+    const elItems = document.getElementById('stat-items-available');
+    const elRequests = document.getElementById('stat-active-requests');
+    const elHelpers = document.getElementById('stat-nearby-helpers');
+    const elImpact = document.getElementById('stat-your-impact');
+    const elMapCount = document.getElementById('map-footer-count');
+    const elSidebarSwaps = document.getElementById('sidebar-swaps-note');
+    const elTrendItems = document.getElementById('stat-trend-items');
+    const elTrendReqs = document.getElementById('stat-trend-requests');
+    const elTrendImpact = document.getElementById('stat-trend-impact');
+
+    if (elItems) elItems.textContent = liveStats.itemsAvailable;
+    if (elRequests) elRequests.textContent = liveStats.activeRequests;
+    if (elHelpers) elHelpers.textContent = liveStats.nearbyHelpers;
+    if (elImpact) elImpact.textContent = liveStats.yourImpact;
+    if (elMapCount) elMapCount.innerHTML = `<b>${liveStats.itemsAvailable}</b> active exchanges across India`;
+    if (elSidebarSwaps) elSidebarSwaps.textContent = `${liveStats.yourImpact} swaps completed this month.`;
+
+    if (elTrendItems) elTrendItems.textContent = liveStats.itemsAvailable > 0 ? '↗ Active' : 'Ready to give';
+    if (elTrendReqs) elTrendReqs.textContent = liveStats.activeRequests > 0 ? '↗ Needs match' : '0 requests';
+    if (elTrendImpact) elTrendImpact.textContent = liveStats.yourImpact > 0 ? `+${liveStats.yourImpact} swaps` : 'Start sharing';
+  },
+
+  refreshMatchesUI(navigate) {
+    const container = document.getElementById('meaningful-matches-container');
+    if (container) {
+      container.innerHTML = HomeView.renderMatchesList();
+      HomeView.attachMatchesEvents(navigate);
+    }
+  },
+
+  attachMatchesEvents(navigate) {
+    document.getElementById('matches-zero-start-btn')?.addEventListener('click', () => {
+      HomeView.openCreateExchangeModal(navigate);
+    });
+
+    document.querySelectorAll('#meaningful-matches-container .item-row[data-donation-id]').forEach(row => {
+      row.addEventListener('click', () => {
+        const id = row.getAttribute('data-donation-id');
+        const item = liveDonations.find(d => String(d.id) === String(id));
+        if (item) {
+          HomeView.openItemDetailModal(item, navigate);
+        }
+      });
+    });
+  },
+
+  async loadLiveState(navigate) {
+    try {
+      const all = await ResourceService.getAllDonations();
+      liveDonations = Array.isArray(all) ? all : [];
+
+      const user = window.currentUser;
+      const userDonorId = user ? (user.id || user.email) : null;
+
+      const avail = liveDonations.filter(d => d.status === 'Available');
+      const reqs = liveDonations.filter(d => d.status === 'Requested');
+      const userItems = userDonorId ? liveDonations.filter(d => d.donorId === userDonorId || (user.email && d.donorId === user.email)) : [];
+
+      liveStats.itemsAvailable = avail.length;
+      liveStats.activeRequests = reqs.length;
+      liveStats.yourImpact = userItems.length;
+
+      const donorsSet = new Set(liveDonations.map(d => d.donorId).filter(Boolean));
+      liveStats.nearbyHelpers = donorsSet.size;
+
+      HomeView.updateStatsDisplay();
+      HomeView.refreshMatchesUI(navigate);
+    } catch (err) {
+      console.warn('Could not load live donations:', err.message);
+    }
   },
 
   renderExchangeOptions() {
@@ -505,6 +620,17 @@ export const HomeView = {
           HomeView.openImpactModal();
         } else if (nav === 'Settings') {
           HomeView.openSettingsModal(navigate, refreshApp);
+        } else if (nav === 'Logout') {
+          (async () => {
+            try {
+              await AuthService.logout();
+            } catch { /* ignore */ }
+            window.currentUser = null;
+            HomeView.showToast('Signed out', 'You have been safely signed out.');
+            navigate('login');
+          })();
+        } else if (nav === 'Login') {
+          navigate('login');
         }
       });
     });
@@ -592,12 +718,7 @@ export const HomeView = {
     });
 
     // Meaningful matches rows
-    document.querySelectorAll('.item-row[data-item]').forEach(row => {
-      row.addEventListener('click', () => {
-        const item = row.getAttribute('data-item');
-        HomeView.openItemDetailModal(item);
-      });
-    });
+    HomeView.attachMatchesEvents(navigate);
 
     // See all matches
     document.getElementById('see-all-matches-btn')?.addEventListener('click', () => {
@@ -639,6 +760,8 @@ export const HomeView = {
       HomeView.openAccountModal(navigate, refreshApp);
     });
 
+    // Initial async live state load from database
+    HomeView.loadLiveState(navigate);
   },
 
   attachExchangeOptionEvents(navigate) {
@@ -688,6 +811,9 @@ export const HomeView = {
 
   // ─── Interactive Modals ──────────────────────────────────────────────────
   openCreateExchangeModal(navigate, isRequest = false) {
+    const user = window.currentUser;
+    const defaultLoc = (user && user.state) ? user.state : activeLocation.split(',')[0].trim();
+
     HomeView.showModal(`
       <div class="modal-header">
         <div>
@@ -702,36 +828,121 @@ export const HomeView = {
           <select class="form-select" id="exchange-category" required>
             <option value="Books">Books & Education</option>
             <option value="Clothes">Clothes & Wearables</option>
-            <option value="Pantry">Pantry & Food Staples</option>
+            <option value="Food">Pantry & Food Staples</option>
             <option value="Electronics">Electronics & Tools</option>
             <option value="Household">Household & Furniture</option>
+            <option value="Other">Other Community Essentials</option>
           </select>
         </div>
         <div class="form-group">
           <label>${isRequest ? 'Item Needed' : 'Item Title'}</label>
-          <input type="text" class="form-input" id="exchange-title" placeholder="e.g. Warm winter coats, Children's encyclopedia" required />
+          <input type="text" class="form-input" id="exchange-title" placeholder="e.g. Winter blankets, School textbooks, Rice bag 5kg" required />
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+          <div class="form-group">
+            <label>Quantity</label>
+            <input type="number" class="form-input" id="exchange-qty" value="1" min="1" required />
+          </div>
+          <div class="form-group">
+            <label>State / Hub</label>
+            <input type="text" class="form-input" id="exchange-loc" value="${defaultLoc}" required />
+          </div>
         </div>
         <div class="form-group">
           <label>Details / Condition</label>
-          <textarea class="form-textarea" id="exchange-details" placeholder="Briefly describe the item, quantity, and pickup neighborhood..." required></textarea>
+          <textarea class="form-textarea" id="exchange-details" placeholder="Briefly describe the item condition, pickup timing, etc."></textarea>
         </div>
-        <div class="form-group">
-          <label>Neighborhood / Location</label>
-          <input type="text" class="form-input" id="exchange-loc" value="${activeLocation}" />
-        </div>
-        <button type="submit" class="primary-button" style="justify-content:center;margin-top:10px;padding:12px;">
-          <span>${isRequest ? 'Submit Request' : 'Publish to Circle'}</span>
+        <button type="submit" class="primary-button" id="exchange-submit-btn" style="justify-content:center;margin-top:10px;padding:12px;">
+          <span>${isRequest ? 'Submit Community Request' : 'Publish to Circle'}</span>
         </button>
       </form>
     `, () => {
-      document.getElementById('create-exchange-form')?.addEventListener('submit', (e) => {
+      document.getElementById('create-exchange-form')?.addEventListener('submit', async (e) => {
         e.preventDefault();
-        const title = document.getElementById('exchange-title')?.value;
-        document.getElementById('active-modal')?.remove();
-        HomeView.showToast(
-          isRequest ? 'Request published!' : 'Item shared successfully!',
-          `"${title}" is now visible to helpers in ${activeLocation}.`
-        );
+        const submitBtn = document.getElementById('exchange-submit-btn');
+        const title = document.getElementById('exchange-title')?.value?.trim();
+        const category = document.getElementById('exchange-category')?.value;
+        const qty = parseInt(document.getElementById('exchange-qty')?.value) || 1;
+        const loc = document.getElementById('exchange-loc')?.value?.trim() || activeLocation;
+        const details = document.getElementById('exchange-details')?.value?.trim();
+
+        if (!title) return;
+
+        if (submitBtn) {
+          submitBtn.disabled = true;
+          submitBtn.innerHTML = `<span>Publishing…</span>`;
+        }
+
+        try {
+          const donorId = user ? (user.id || user.email) : 'guest-donor';
+
+          const created = await ResourceService.addDonation({
+            title,
+            category,
+            quantity: qty,
+            state: loc,
+            donorId
+          });
+
+          const itemObj = {
+            id: created.id || Date.now().toString(),
+            title,
+            category,
+            quantity: qty,
+            state: loc,
+            donorId,
+            status: isRequest ? 'Requested' : 'Available',
+            date: new Date().toISOString(),
+            details
+          };
+
+          liveDonations.unshift(itemObj);
+
+          if (isRequest) {
+            liveStats.activeRequests++;
+          } else {
+            liveStats.itemsAvailable++;
+            liveStats.yourImpact++;
+          }
+
+          HomeView.updateStatsDisplay();
+          HomeView.refreshMatchesUI(navigate);
+
+          document.getElementById('active-modal')?.remove();
+          HomeView.showToast(
+            isRequest ? 'Request published!' : 'Item shared successfully!',
+            `"${title}" is now visible to helpers across ${loc}.`
+          );
+        } catch (err) {
+          console.warn('Saving exchange locally:', err.message);
+          // Fallback in case of network glitch
+          liveDonations.unshift({
+            id: Date.now().toString(),
+            title,
+            category,
+            quantity: qty,
+            state: loc,
+            donorId: user ? (user.id || user.email) : 'guest-donor',
+            status: isRequest ? 'Requested' : 'Available',
+            date: new Date().toISOString()
+          });
+
+          if (isRequest) {
+            liveStats.activeRequests++;
+          } else {
+            liveStats.itemsAvailable++;
+            liveStats.yourImpact++;
+          }
+
+          HomeView.updateStatsDisplay();
+          HomeView.refreshMatchesUI(navigate);
+
+          document.getElementById('active-modal')?.remove();
+          HomeView.showToast(
+            isRequest ? 'Request published!' : 'Item shared successfully!',
+            `"${title}" is now visible to helpers across ${loc}.`
+          );
+        }
       });
     });
   },
@@ -774,23 +985,30 @@ export const HomeView = {
     `);
   },
 
-  openItemDetailModal(itemName) {
+  openItemDetailModal(item, navigate) {
+    if (!item) return;
+    const isObj = typeof item === 'object';
+    const title = isObj ? (item.title || 'Community Item') : item;
+    const category = isObj ? (item.category || 'General') : 'Community Item';
+    const quantity = isObj ? (item.quantity || 1) : 1;
+    const state = isObj ? (item.state || 'Local circle') : 'Delhi NCR';
+
     HomeView.showModal(`
       <div class="modal-header">
         <div>
-          <p class="eyebrow">Item in Circle</p>
-          <h2 class="section-title" style="font-size:22px;">${itemName}</h2>
+          <p class="eyebrow">${category} · In Circle</p>
+          <h2 class="section-title" style="font-size:22px;">${title}</h2>
         </div>
         <button class="modal-close" onclick="document.getElementById('active-modal').remove()">✕</button>
       </div>
       <div style="background:#f8f6f1;border-radius:14px;padding:18px;margin-bottom:16px;">
         <p style="font-size:13px;color:var(--muted-ink);line-height:1.5;">
-          This item was listed by a verified neighbor in your Indian community circle. Verified condition: gently used and sanitized.
+          This item was listed by a verified neighbor in your Indian community circle. Ready for pickup or zero-waste exchange.
         </p>
-        <div style="margin-top:12px;display:flex;gap:16px;font-size:12px;color:var(--ink);">
-          <span>📍 1.2 km away (Delhi NCR)</span>
-          <span>⚡ Available now</span>
-          <span>⭐ 4.9 Donor rating</span>
+        <div style="margin-top:12px;display:flex;flex-wrap:wrap;gap:14px;font-size:12px;color:var(--ink);">
+          <span>📍 <b>${state}</b></span>
+          <span>📦 Quantity: <b>${quantity}</b></span>
+          <span>⚡ Status: <b style="color:#4a7c3b;">Available</b></span>
         </div>
       </div>
       <div style="display:flex;gap:10px;">
@@ -802,9 +1020,33 @@ export const HomeView = {
         </button>
       </div>
     `, () => {
-      document.getElementById('btn-request-match')?.addEventListener('click', () => {
+      document.getElementById('btn-request-match')?.addEventListener('click', async () => {
+        const btn = document.getElementById('btn-request-match');
+        if (btn) {
+          btn.disabled = true;
+          btn.textContent = 'Requesting…';
+        }
+
+        const user = window.currentUser;
+        const ngoId = user ? (user.id || user.email) : 'community-requester';
+
+        if (isObj && item.id) {
+          try {
+            await ResourceService.requestDonation(item.id, ngoId);
+            item.status = 'Requested';
+          } catch {
+            item.status = 'Requested';
+          }
+        }
+
+        liveStats.itemsAvailable = Math.max(0, liveStats.itemsAvailable - 1);
+        liveStats.activeRequests++;
+
+        HomeView.updateStatsDisplay();
+        HomeView.refreshMatchesUI(navigate);
+
         document.getElementById('active-modal')?.remove();
-        HomeView.showToast('Exchange Request Sent!', `The donor has been notified of your interest in "${itemName}".`);
+        HomeView.showToast('Exchange Request Sent!', `The donor has been notified of your interest in "${title}".`);
       });
     });
   },
@@ -1166,36 +1408,72 @@ export const HomeView = {
     `);
   },
 
-  openMyExchangeModal(navigate) {
+  async openMyExchangeModal(navigate) {
+    const user = window.currentUser;
+    const userDonorId = user ? (user.id || user.email) : null;
+
+    let userItems = [];
+    if (userDonorId) {
+      try {
+        const res = await ResourceService.getDonationsByDonor(userDonorId);
+        userItems = Array.isArray(res) ? res : [];
+      } catch {
+        userItems = liveDonations.filter(d => d.donorId === userDonorId || (user.email && d.donorId === user.email));
+      }
+    } else {
+      userItems = liveDonations.filter(d => d.donorId === 'guest-donor');
+    }
+
+    let itemsHtml = '';
+    if (userItems.length === 0) {
+      itemsHtml = `
+        <div style="padding:28px 16px;text-align:center;">
+          <div style="font-size:32px;margin-bottom:8px;">🎁</div>
+          <p style="font-size:15px;font-weight:700;color:var(--ink);">No exchanges yet</p>
+          <p style="font-size:12px;color:var(--muted-ink);margin:6px 0 18px;max-width:300px;margin-inline:auto;">
+            Start sharing items with your community and track their journey here.
+          </p>
+          <button class="primary-button" id="btn-modal-new-swap" style="margin:0 auto;padding:10px 20px;">
+            <span>+ Start Your First Exchange</span>
+          </button>
+        </div>
+      `;
+    } else {
+      itemsHtml = `
+        <div style="display:flex;flex-direction:column;gap:10px;">
+          ${userItems.map(d => {
+            const isAvail = d.status === 'Available';
+            const isReq = d.status === 'Requested';
+            const badgeBg = isAvail ? 'var(--butter)' : (isReq ? 'var(--lavender)' : '#dfead4');
+            const badgeColor = isAvail ? 'var(--ink)' : (isReq ? '#4e3b6a' : '#466538');
+            return `
+              <div style="background:#faf7f2;border:1px solid #eee7dc;border-radius:14px;padding:14px;display:flex;justify-content:space-between;align-items:center;">
+                <div>
+                  <b style="font-size:13px;color:var(--ink);">${d.title}</b>
+                  <p style="font-size:11px;color:var(--muted-ink);margin-top:2px;">${d.quantity || 1} item · ${d.category || 'General'} · ${d.state || 'India'}</p>
+                </div>
+                <span style="background:${badgeBg};color:${badgeColor};font-size:10px;font-weight:700;padding:4px 8px;border-radius:99px;">${d.status || 'Active'}</span>
+              </div>
+            `;
+          }).join('')}
+        </div>
+        <div style="display:flex;gap:10px;margin-top:18px;">
+          <button class="primary-button" style="flex:1;justify-content:center;padding:12px;" id="btn-modal-new-swap">
+            <span>+ Start New Exchange</span>
+          </button>
+        </div>
+      `;
+    }
+
     HomeView.showModal(`
       <div class="modal-header">
         <div>
-          <p class="eyebrow">Active Circle</p>
+          <p class="eyebrow">Your Circle Contribution</p>
           <h2 class="section-title" style="font-size:22px;">My Exchanges</h2>
         </div>
         <button class="modal-close" onclick="document.getElementById('active-modal').remove()">✕</button>
       </div>
-      <div style="display:flex;flex-direction:column;gap:12px;">
-        <div style="background:#faf7f2;border:1px solid #eee7dc;border-radius:14px;padding:14px;display:flex;justify-content:space-between;align-items:center;">
-          <div>
-            <b style="font-size:13px;color:var(--ink);">Children's books (Set of 12)</b>
-            <p style="font-size:11px;color:var(--muted-ink);margin-top:2px;">Requested by Oak Street NGO · Pending handover</p>
-          </div>
-          <span style="background:var(--butter);color:var(--ink);font-size:10px;font-weight:700;padding:4px 8px;border-radius:99px;">Active</span>
-        </div>
-        <div style="background:#faf7f2;border:1px solid #eee7dc;border-radius:14px;padding:14px;display:flex;justify-content:space-between;align-items:center;">
-          <div>
-            <b style="font-size:13px;color:var(--ink);">Warm fleece sweater</b>
-            <p style="font-size:11px;color:var(--muted-ink);margin-top:2px;">Swapped with Maya R. · Completed Sep 4</p>
-          </div>
-          <span style="background:#dfead4;color:#466538;font-size:10px;font-weight:700;padding:4px 8px;border-radius:99px;">Completed</span>
-        </div>
-      </div>
-      <div style="display:flex;gap:10px;margin-top:18px;">
-        <button class="primary-button" style="flex:1;justify-content:center;padding:12px;" id="btn-modal-new-swap">
-          <span>+ Start New Exchange</span>
-        </button>
-      </div>
+      ${itemsHtml}
     `, () => {
       document.getElementById('btn-modal-new-swap')?.addEventListener('click', () => {
         document.getElementById('active-modal')?.remove();
@@ -1238,18 +1516,20 @@ export const HomeView = {
   openAccountModal(navigate, refreshApp) {
     const user = window.currentUser;
     if (user) {
+      const displayId = user.kindswapId || user.kindswap_id || user.id || 'Member';
       HomeView.showModal(`
         <div class="modal-header">
           <div>
-            <p class="eyebrow">Account</p>
-            <h2 class="section-title" style="font-size:22px;">${user.name || user.email}</h2>
+            <p class="eyebrow">KindSwap Account</p>
+            <h2 class="section-title" style="font-size:22px;">${user.name || displayId}</h2>
           </div>
           <button class="modal-close" onclick="document.getElementById('active-modal').remove()">✕</button>
         </div>
         <div style="background:#faf7f2;border:1px solid #eee7dc;border-radius:14px;padding:16px;margin-bottom:16px;">
-          <p style="font-size:12px;color:var(--muted-ink);">Email: <strong style="color:var(--ink);">${user.email}</strong></p>
-          <p style="font-size:12px;color:var(--muted-ink);margin-top:6px;">Role: <strong style="color:var(--ink);text-transform:capitalize;">${user.role}</strong></p>
-          <p style="font-size:12px;color:var(--muted-ink);margin-top:6px;">Status: <strong style="color:#4a7c3b;">Authenticated</strong></p>
+          <p style="font-size:12px;color:var(--muted-ink);">KindSwap ID: <strong style="color:var(--ink);">${displayId} @ KindSwap</strong></p>
+          ${user.city ? `<p style="font-size:12px;color:var(--muted-ink);margin-top:6px;">Location: <strong style="color:var(--ink);">${user.city}${user.state ? `, ${user.state}` : ''}</strong></p>` : ''}
+          <p style="font-size:12px;color:var(--muted-ink);margin-top:6px;">Role: <strong style="color:var(--ink);text-transform:capitalize;">${user.role || 'Member'}</strong></p>
+          <p style="font-size:12px;color:var(--muted-ink);margin-top:6px;">Status: <strong style="color:#4a7c3b;">Active & Verified ✓</strong></p>
         </div>
         <div style="display:flex;flex-direction:column;gap:10px;">
           <button class="primary-button" style="justify-content:center;padding:12px;background:#b33a2b;" id="modal-logout-btn">
@@ -1264,7 +1544,7 @@ export const HomeView = {
           window.currentUser = null;
           document.getElementById('active-modal')?.remove();
           HomeView.showToast('Signed out', 'You are now browsing as guest.');
-          refreshApp();
+          navigate('login');
         });
       });
     } else {

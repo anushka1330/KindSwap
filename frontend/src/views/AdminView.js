@@ -1,5 +1,6 @@
 import { MatchingService } from '../services/matchingService.js';
 import { Toast } from '../components/Toast.js';
+import { getTimeBasedGreeting, getFirstName } from '../utils/greeting.js';
 
 function getBadgeClass(status) {
   if (status === 'Available') return 'badge-available';
@@ -9,18 +10,31 @@ function getBadgeClass(status) {
 
 function getSidebarHTML() {
   if (!window.currentUser) return '';
+  const firstName = getFirstName(window.currentUser.name) || 'Admin';
+  const initial = firstName.charAt(0).toUpperCase();
+
   return `
     <aside class="sidebar-profile">
       <div class="glass-panel profile-card">
         <div class="profile-header">
-          <div class="profile-avatar">${window.currentUser.email.charAt(0).toUpperCase()}</div>
-          <h3 class="profile-name">${window.currentUser.email}</h3>
-          <span class="profile-role-badge">${window.currentUser.role}</span>
+          <div class="profile-avatar" style="background:#fce8be;color:#856108;">${initial}</div>
+          <h3 class="profile-name">${window.currentUser.name || window.currentUser.email}</h3>
+          <span class="profile-role-badge" style="background:#fce8be;color:#856108;">Platform Admin</span>
         </div>
         <div class="profile-stats">
           <div class="profile-detail">
             <span>Location</span>
             <strong>${window.currentUser.state}</strong>
+          </div>
+          ${window.currentUser.age ? `
+            <div class="profile-detail" style="margin-top:8px;">
+              <span>Age</span>
+              <strong>${window.currentUser.age}</strong>
+            </div>
+          ` : ''}
+          <div class="profile-detail" style="margin-top:8px;">
+            <span>Privileges</span>
+            <strong style="color:#856108;">Full Match Admin</strong>
           </div>
         </div>
       </div>
@@ -31,6 +45,7 @@ function getSidebarHTML() {
 export const AdminView = {
   async render() {
     const requestedItems = await MatchingService.getRequestedDonations();
+    const greeting = getTimeBasedGreeting(window.currentUser.name);
     
     let listHtml = '';
     if (requestedItems.length === 0) {
@@ -73,8 +88,9 @@ export const AdminView = {
         ${getSidebarHTML()}
         <div class="main-content">
           <div class="view-header">
-            <h2>Admin Match Dashboard</h2>
-            <p>Review requests from NGOs and assign items to fulfill them.</p>
+            <span class="auth-badge" style="background:#fce8be;color:#856108;">Admin Match Hub</span>
+            <h2 class="font-display">${greeting} <span class="wave">✦</span></h2>
+            <p>Review requests from NGOs and coordinate assignments across community circles.</p>
           </div>
           
           <div class="glass-panel">

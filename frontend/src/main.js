@@ -2,40 +2,91 @@ import './style.css';
 import { StorageService } from './db/storage.js';
 import { AuthService } from './services/authService.js';
 import { Navbar } from './components/Navbar.js';
-import { Footer } from './components/Footer.js';
 import { HomeView } from './views/HomeView.js';
-import { WelcomeView } from './views/WelcomeView.js';
 import { AuthView } from './views/AuthView.js';
+import { ProfileSetupView } from './views/ProfileSetupView.js';
 import { DonorView } from './views/DonorView.js';
 import { NGOView } from './views/NGOView.js';
 import { AdminView } from './views/AdminView.js';
+import { getTimeBasedGreeting } from './utils/greeting.js';
 
 // Global error handler
-window.addEventListener('error', function(event) {
+window.addEventListener('error', function (event) {
   console.error('Global error:', event.message, 'at', event.filename + ':' + event.lineno);
 });
 
-// Initialize StorageService (states/categories used by dropdowns)
+// Initialize StorageService
 StorageService.init();
 
 // ─── App State ───────────────────────────────────────────────────────────────
 window.currentUser = null;
 let currentView = 'welcome';
 
-// DOM containers — assigned once DOMContentLoaded fires
+// DOM containers
 let appContainer;
 let navContainer;
 
+// ─── Route Mapping ───────────────────────────────────────────────────────────
+const viewToPath = {
+  welcome: '/',
+  login: '/login',
+  register: '/register',
+  'profile-setup': '/profile-setup',
+  donor: '/donor',
+  ngo: '/ngo',
+  admin: '/admin',
+  menu: '/dashboard'
+};
+
+function getRouteFromPath(pathname) {
+  const path = pathname.toLowerCase().replace(/\/$/, '') || '/';
+  if (path === '/login') return 'login';
+  if (path === '/register') return 'register';
+  if (path === '/profile-setup') return 'profile-setup';
+  if (path === '/admin') return 'admin';
+  return 'welcome';
+}
+
+function isProfileIncomplete(user) {
+  return !user || !user.name || !user.age || !user.city;
+}
+
 // ─── Navigation ──────────────────────────────────────────────────────────────
-function navigate(view) {
+export function navigate(view, push = true) {
+  // Guard check: incomplete profile redirect
+  if (window.currentUser && isProfileIncomplete(window.currentUser) && view !== 'profile-setup' && view !== 'login') {
+    view = 'profile-setup';
+  }
+
+  // Guard check: protected routes
+  const protectedViews = ['profile-setup', 'admin'];
+  if (protectedViews.includes(view) && !window.currentUser) {
+    view = 'login';
+  }
+
+  // If already completed profile and trying to visit profile-setup or legacy views, go to welcome (Manus UI)
+  if (window.currentUser && !isProfileIncomplete(window.currentUser)) {
+    if (view === 'profile-setup' || view === 'donor' || view === 'ngo') {
+      view = 'welcome';
+    }
+  }
+
   currentView = view;
+
+  // Synchronize browser history
+  const targetPath = viewToPath[view] || '/';
+  if (push && window.location.pathname !== targetPath) {
+    window.history.pushState({ view }, '', targetPath);
+  }
+
   renderApp();
 }
 
 // ─── Navbar ───────────────────────────────────────────────────────────────────
-// Always writes to the single #top-nav-container — never creates a new one.
 function renderNavbar() {
-  if (currentView === 'welcome' || currentView === 'login') {
+  // HomeView (welcome) has its own sidebar and topbar; auth screens have their own headers.
+  const customHeaderScreens = ['login', 'register', 'profile-setup', 'welcome'];
+  if (customHeaderScreens.includes(currentView)) {
     navContainer.innerHTML = '';
   } else {
     navContainer.innerHTML = Navbar.render();
@@ -45,46 +96,36 @@ function renderNavbar() {
 
 // ─── Main Render ─────────────────────────────────────────────────────────────
 async function renderApp() {
-  // 1. Clear content area
+  if (!appContainer) return;
   appContainer.innerHTML = '';
-  // 2. Refresh navbar
   renderNavbar();
 
   try {
     if (currentView === 'login') {
+      AuthView.setScreen('login');
       appContainer.innerHTML = AuthView.render();
       AuthView.attachEvents(navigate, renderApp);
-    } else if (currentView === 'welcome') {
-      appContainer.innerHTML = HomeView.render();
-      HomeView.attachEvents(navigate, renderApp);
-    } else if (!window.currentUser) {
+    } else if (currentView === 'register') {
+      AuthView.setScreen('register');
+      appContainer.innerHTML = AuthView.render();
+      AuthView.attachEvents(navigate, renderApp);
+    } else if (currentView === 'profile-setup') {
+      appContainer.innerHTML = ProfileSetupView.render();
+      ProfileSetupView.attachEvents(navigate);
+    } else if (currentView === 'admin' && window.currentUser && window.currentUser.role === 'admin') {
+      appContainer.innerHTML = await AdminView.render();
+      AdminView.attachEvents(navigate, renderApp);
+    } else {
+      // Default view for both guests and authenticated users is the Manus UI (HomeView)
       currentView = 'welcome';
       appContainer.innerHTML = HomeView.render();
       HomeView.attachEvents(navigate, renderApp);
-    } else {
-      // Authenticated — role-based routing (server enforces auth)
-      if (currentView === 'menu') {
-        renderRoleMenu();
-      } else if (currentView === 'donor' && window.currentUser.role === 'donor') {
-        appContainer.innerHTML = await DonorView.render();
-        DonorView.attachEvents(navigate, renderApp);
-      } else if (currentView === 'ngo' && window.currentUser.role === 'ngo') {
-        appContainer.innerHTML = await NGOView.render();
-        NGOView.attachEvents(navigate, renderApp);
-      } else if (currentView === 'admin' && window.currentUser.role === 'admin') {
-        appContainer.innerHTML = await AdminView.render();
-        AdminView.attachEvents(navigate, renderApp);
-      } else {
-        currentView = 'welcome';
-        appContainer.innerHTML = HomeView.render();
-        HomeView.attachEvents(navigate, renderApp);
-      }
     }
   } catch (e) {
     appContainer.innerHTML = `
       <div style="padding:60px;text-align:center;">
-        <h2 style="color:var(--warning)">Oops, something went wrong.</h2>
-        <p style="color:var(--text-secondary)">${e.message}</p>
+        <h2 style="color:var(--ink);">Oops, something went wrong.</h2>
+        <p style="color:var(--muted-ink);margin:10px 0 20px;">${e.message}</p>
         <button class="btn btn-primary" onclick="window.location.reload()">Reload Page</button>
       </div>`;
     console.error(e);
@@ -94,7 +135,7 @@ async function renderApp() {
 // ─── Role Menu ───────────────────────────────────────────────────────────────
 function renderRoleMenu() {
   const role = window.currentUser.role;
-  const displayName = window.currentUser.name || window.currentUser.email;
+  const greeting = getTimeBasedGreeting(window.currentUser.name);
   let menuItems = '';
 
   if (role === 'donor') {
@@ -102,7 +143,7 @@ function renderRoleMenu() {
       <div class="menu-card glass-panel" id="menu-donate">
         <span class="menu-card-icon">🎁</span>
         <h3>Donate something</h3>
-        <p>Add new items to donate to NGOs.</p>
+        <p>Add new items to donate to NGOs and community members.</p>
       </div>
       <div class="menu-card glass-panel" id="menu-view-donor">
         <span class="menu-card-icon">📊</span>
@@ -120,7 +161,7 @@ function renderRoleMenu() {
       <div class="menu-card glass-panel" id="menu-view-ngo">
         <span class="menu-card-icon">📋</span>
         <h3>View dashboard</h3>
-        <p>Check the status of your requests.</p>
+        <p>Check the status of your community requests.</p>
       </div>
     `;
   } else if (role === 'admin') {
@@ -132,15 +173,16 @@ function renderRoleMenu() {
       </div>
       <div class="menu-card glass-panel" id="menu-view-admin">
         <span class="menu-card-icon">📈</span>
-        <h3>View dashboard</h3>
-        <p>Platform statistics and overview.</p>
+        <h3>Admin dashboard</h3>
+        <p>Platform statistics and matching overview.</p>
       </div>
     `;
   }
 
   appContainer.innerHTML = `
     <div class="view-header" style="text-align:center;margin-top:40px;">
-      <h2>Hello, ${displayName}!</h2>
+      <span class="auth-badge">Workspace Menu</span>
+      <h2 class="font-display">${greeting} <span class="wave">✦</span></h2>
       <p>What would you like to do today?</p>
     </div>
     <div class="role-menu-grid">
@@ -149,32 +191,58 @@ function renderRoleMenu() {
   `;
 
   if (role === 'donor') {
-    document.getElementById('menu-donate')?.addEventListener('click',     () => navigate('donor'));
+    document.getElementById('menu-donate')?.addEventListener('click', () => navigate('donor'));
     document.getElementById('menu-view-donor')?.addEventListener('click', () => navigate('donor'));
   } else if (role === 'ngo') {
-    document.getElementById('menu-request')?.addEventListener('click',    () => navigate('ngo'));
-    document.getElementById('menu-view-ngo')?.addEventListener('click',   () => navigate('ngo'));
+    document.getElementById('menu-request')?.addEventListener('click', () => navigate('ngo'));
+    document.getElementById('menu-view-ngo')?.addEventListener('click', () => navigate('ngo'));
   } else if (role === 'admin') {
-    document.getElementById('menu-match')?.addEventListener('click',      () => navigate('admin'));
+    document.getElementById('menu-match')?.addEventListener('click', () => navigate('admin'));
     document.getElementById('menu-view-admin')?.addEventListener('click', () => navigate('admin'));
   }
 }
+
+// ─── Browser History Listener ────────────────────────────────────────────────
+window.addEventListener('popstate', (e) => {
+  const targetView = (e.state && e.state.view) || getRouteFromPath(window.location.pathname);
+  navigate(targetView, false);
+});
 
 // ─── Bootstrap ───────────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', async () => {
   appContainer = document.getElementById('app-container');
   navContainer = document.getElementById('top-nav-container');
 
-  // Restore session from server (fixes lost-on-refresh bug)
+  const initialRoute = getRouteFromPath(window.location.pathname);
+
+  // Restore session from server
   try {
     const user = await AuthService.getMe();
     if (user) {
       window.currentUser = user;
-      currentView = 'menu';
+
+      if (isProfileIncomplete(user)) {
+        navigate('profile-setup', false);
+        return;
+      }
+
+      // Returning user with completed profile
+      if (initialRoute === 'welcome' || initialRoute === 'login' || initialRoute === 'register' || initialRoute === 'donor' || initialRoute === 'ngo') {
+        navigate('welcome', false);
+        return;
+      }
+
+      navigate(initialRoute, false);
+      return;
     }
   } catch {
-    // No session — start as guest
+    // No session -> guest
   }
 
-  renderApp();
+  // Not logged in
+  if (['admin', 'profile-setup'].includes(initialRoute)) {
+    navigate('login', false);
+  } else {
+    navigate(initialRoute, false);
+  }
 });

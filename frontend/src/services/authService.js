@@ -3,8 +3,25 @@ const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
 
 export const AuthService = {
 
-  async register(email, password, confirmPassword, name, role, state, adminCode) {
-    const body = { email, password, confirmPassword, name, role, state };
+  /**
+   * Real-time KindSwap ID availability check
+   */
+  async checkKindswapId(kindswapId) {
+    if (!kindswapId) return { available: false, message: '' };
+    try {
+      const res = await fetch(`${API_BASE}/auth/check-id?kindswapId=${encodeURIComponent(kindswapId.trim())}`);
+      const data = await res.json();
+      return data;
+    } catch {
+      return { available: false, message: 'Could not verify ID availability.' };
+    }
+  },
+
+  /**
+   * Register Page 1: Create KindSwap ID & Password (No OTP!)
+   */
+  async register({ kindswapId, password, confirmPassword, role = 'donor', state = 'India', adminCode = '' }) {
+    const body = { kindswapId, password, confirmPassword, role, state };
     if (adminCode) body.adminCode = adminCode;
 
     const res = await fetch(`${API_BASE}/auth/register`, {
@@ -15,50 +32,29 @@ export const AuthService = {
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || 'Registration failed.');
-    return data;
+    return data.user;
   },
 
-  async verifyOTP(email, otp) {
-    const res = await fetch(`${API_BASE}/auth/verify-otp`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      credentials: 'include',
-      body: JSON.stringify({ email, otp })
-    });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error || 'Verification failed.');
-    return data;
-  },
-
-  async resendOTP(email) {
-    const res = await fetch(`${API_BASE}/auth/resend-otp`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      credentials: 'include',
-      body: JSON.stringify({ email })
-    });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error || 'Could not resend code.');
-    return data;
-  },
-
-  async login(email, password) {
+  /**
+   * Login with KindSwap ID + Password
+   */
+  async login(kindswapId, password) {
     const res = await fetch(`${API_BASE}/auth/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       credentials: 'include',
-      body: JSON.stringify({ email, password })
+      body: JSON.stringify({ kindswapId: kindswapId.trim(), password })
     });
     const data = await res.json();
     if (!res.ok) {
-      const err = new Error(data.error || 'Login failed.');
-      err.requiresVerification = data.requiresVerification || false;
-      err.email = email;
-      throw err;
+      throw new Error(data.error || 'Login failed.');
     }
     return data.user;
   },
 
+  /**
+   * Log out and destroy session
+   */
   async logout() {
     await fetch(`${API_BASE}/auth/logout`, {
       method: 'POST',
@@ -66,6 +62,24 @@ export const AuthService = {
     });
   },
 
+  /**
+   * Page 2: Tell us about yourself (Name, Age, City/Location)
+   */
+  async updateProfile({ name, age, city, state }) {
+    const res = await fetch(`${API_BASE}/auth/profile`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({ name, age, city, state })
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Failed to update profile.');
+    return data.user;
+  },
+
+  /**
+   * Session restoration
+   */
   async getMe() {
     try {
       const res = await fetch(`${API_BASE}/auth/me`, {

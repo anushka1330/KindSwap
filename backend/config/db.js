@@ -48,6 +48,7 @@ const initDB = async () => {
         id        VARCHAR(255) PRIMARY KEY,
         email     VARCHAR(255) UNIQUE NOT NULL,
         name      VARCHAR(255) DEFAULT NULL,
+        age       INT          DEFAULT NULL,
         role      VARCHAR(50)  NOT NULL,
         state     VARCHAR(100) NOT NULL,
         createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -115,36 +116,39 @@ const initDB = async () => {
 
     // --- Step 3: Safe column additions (idempotent migrations) ---
 
-    // Add 'name' to users if missing (legacy tables won't have it)
-    await safeAddColumn('users', 'name', "VARCHAR(255) DEFAULT NULL AFTER email");
+    // Add 'kindswap_id' to users (unique identity)
+    await safeAddColumn('users', 'kindswap_id', "VARCHAR(100) DEFAULT NULL AFTER id");
+    // Add 'name' to users if missing
+    await safeAddColumn('users', 'name', "VARCHAR(255) DEFAULT NULL");
+    // Add 'age' to users if missing
+    await safeAddColumn('users', 'age', "INT DEFAULT NULL");
+    // Add 'city' to users if missing
+    await safeAddColumn('users', 'city', "VARCHAR(100) DEFAULT NULL");
+    // Add 'password_hash' to users
+    await safeAddColumn('users', 'password_hash', "VARCHAR(255) DEFAULT NULL");
 
-    // Add secure columns to login if this was an old plaintext table
-    await safeAddColumn('login', 'password_hash', "VARCHAR(255) NOT NULL DEFAULT '' AFTER email");
-    await safeAddColumn('login', 'email_verified', "TINYINT(1) NOT NULL DEFAULT 0");
-    await safeAddColumn('login', 'failed_attempts', "INT NOT NULL DEFAULT 0");
-    await safeAddColumn('login', 'locked_until', "DATETIME DEFAULT NULL");
-    await safeAddColumn('login', 'last_otp_sent_at', "DATETIME DEFAULT NULL");
+    // Ensure email in users is nullable for KindSwap ID + password auth
+    try {
+      await pool.query("ALTER TABLE users MODIFY COLUMN email VARCHAR(255) NULL DEFAULT NULL");
+    } catch { /* ignore */ }
+
+    // Ensure UNIQUE INDEX on kindswap_id
+    try {
+      const [idx] = await pool.query("SHOW INDEX FROM users WHERE Key_name = 'idx_users_kindswap_id'");
+      if (idx.length === 0) {
+        await pool.query("ALTER TABLE users ADD UNIQUE INDEX idx_users_kindswap_id (kindswap_id)");
+      }
+    } catch { /* ignore */ }
 
     // Ensure requestedBy exists on donations
     await safeAddColumn('donations', 'requestedBy', "VARCHAR(255) DEFAULT NULL");
 
-    // ── Legacy migration: make old plaintext 'password' column nullable ──────
-    // Old table had: password VARCHAR(255) NOT NULL
-    // This blocks new inserts that only set password_hash.
-    // We make it nullable (or give it a default) so inserts work.
+    // Ensure system guest user exists so unauthenticated or guest donations succeed
     try {
       await pool.query(
-        "ALTER TABLE login MODIFY COLUMN password VARCHAR(255) NULL DEFAULT NULL"
+        "INSERT IGNORE INTO users (id, kindswap_id, name, role, state) VALUES ('guest-donor', 'guest', 'Community Guest', 'donor', 'India')"
       );
-      console.log("  [migration] Made legacy 'password' column nullable.");
-    } catch (e) {
-      if (e.code !== 'ER_BAD_FIELD_ERROR') {
-        // Column might not exist at all (fresh install) — that's fine
-        if (!e.message.includes("Unknown column")) {
-          console.error('  [migration] Note on legacy password column:', e.message);
-        }
-      }
-    }
+    } catch { /* ignore */ }
 
     console.log('Migrations complete. Server ready.');
 

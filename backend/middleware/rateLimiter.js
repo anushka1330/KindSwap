@@ -8,47 +8,36 @@ const handler = (req, res) => {
 };
 
 /**
- * Login: 10 attempts per 15 minutes per IP
+ * Login: 20 attempts per 15 minutes per IP
  */
 const loginLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 10,
+  max: 20,
   standardHeaders: true,
   legacyHeaders: false,
   handler
 });
 
 /**
- * Registration: 5 accounts per hour per IP
+ * Registration: 20 accounts per hour per IP
  */
 const registerLimiter = rateLimit({
   windowMs: 60 * 60 * 1000,
-  max: 5,
+  max: 20,
   standardHeaders: true,
   legacyHeaders: false,
   handler
 });
 
 /**
- * OTP verification: 10 attempts per 15 minutes per IP
+ * KindSwap ID check: 60 queries per minute per IP
  */
-const otpVerifyLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 10,
+const checkIdLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 60,
   standardHeaders: true,
   legacyHeaders: false,
   handler
 });
 
-/**
- * OTP resend: 5 requests per 10 minutes per IP
- */
-const otpResendLimiter = rateLimit({
-  windowMs: 10 * 60 * 1000,
-  max: 5,
-  standardHeaders: true,
-  legacyHeaders: false,
-  handler
-});
-
-module.exports = { loginLimiter, registerLimiter, otpVerifyLimiter, otpResendLimiter };
+module.exports = { loginLimiter, registerLimiter, checkIdLimiter };

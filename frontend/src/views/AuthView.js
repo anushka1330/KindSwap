@@ -1,46 +1,65 @@
-import { StorageService } from '../db/storage.js';
 import { AuthService } from '../services/authService.js';
 import { Toast } from '../components/Toast.js';
 
-// Track which screen is active
-// screen: 'login' | 'register' | 'otp'
-let _screen = 'login';
-let _pendingEmail = '';   // email waiting for OTP
-let _pendingName  = '';
-let _otpTimer = null;
-
-function getStatesOptions() {
-  return StorageService.getStates()
-    .map(s => `<option value="${s}">${s}</option>`)
-    .join('');
-}
+let _screen = 'login'; // 'login' | 'register'
+let _idCheckTimeout = null;
+let _isIdAvailable = null;
 
 function renderLogin() {
   return `
     <div class="auth-screen" id="screen-login">
       <div class="auth-form-header">
-        <h2>Welcome back</h2>
-        <p>Sign in to your KindSwap account</p>
+        <span class="auth-badge">Welcome back</span>
+        <h2>Sign in to KindSwap</h2>
+        <p>Connect with your community circle to share and receive resources.</p>
       </div>
+
       <form id="login-form" novalidate>
         <div class="form-group">
-          <label for="login-email">Email Address</label>
-          <input type="email" id="login-email" required autocomplete="email"
-                 placeholder="you@example.com">
+          <label for="login-kindswap-id">KindSwap ID</label>
+          <div class="id-input-wrap">
+            <span class="input-icon" style="z-index:2;">@</span>
+            <input
+              type="text"
+              id="login-kindswap-id"
+              class="form-input has-icon"
+              required
+              autocomplete="username"
+              placeholder="e.g. Anushka123"
+            />
+            <span class="id-suffix-badge">@ KindSwap</span>
+          </div>
+          <span class="input-hint">Your unique ID — e.g. <strong>Anushka123 @ KindSwap</strong></span>
         </div>
+
         <div class="form-group">
-          <label for="login-password">Password</label>
+          <div class="form-label-row">
+            <label for="login-password">Password</label>
+          </div>
           <div class="input-password-wrap">
-            <input type="password" id="login-password" required autocomplete="current-password"
-                   placeholder="Enter your password">
-            <button type="button" class="toggle-pw" data-target="login-password" aria-label="Show password">👁</button>
+            <span class="input-icon">🔒</span>
+            <input
+              type="password"
+              id="login-password"
+              class="form-input has-icon"
+              required
+              autocomplete="current-password"
+              placeholder="Enter your password"
+            />
+            <button type="button" class="toggle-pw" data-target="login-password" aria-label="Toggle password visibility">👁</button>
           </div>
         </div>
-        <div class="form-error" id="login-error"></div>
-        <button type="submit" class="btn btn-primary btn-block" id="login-submit">Sign In</button>
+
+        <div class="form-error" id="login-error" style="display:none;"></div>
+
+        <button type="submit" class="btn btn-primary btn-block" id="login-submit" style="margin-top: 10px;">
+          <span>Sign In</span>
+          <span class="btn-arrow">→</span>
+        </button>
       </form>
+
       <div class="auth-toggle">
-        Don't have an account? <a href="#" id="go-register">Create one</a>
+        Don't have a KindSwap ID? <a href="/register" id="go-register">Create your KindSwap ID</a>
       </div>
     </div>
   `;
@@ -50,178 +69,218 @@ function renderRegister() {
   return `
     <div class="auth-screen" id="screen-register">
       <div class="auth-form-header">
-        <h2>Join KindSwap</h2>
-        <p>Create your account and start making an impact</p>
+        <span class="auth-badge">Step 1 of 2: Your Account</span>
+        <h2>Create your KindSwap ID</h2>
+        <p>Choose a unique ID and a password to join your neighborhood circle.</p>
       </div>
+
       <form id="register-form" novalidate>
+        <!-- KindSwap ID with Suffix Badge and Live Availability -->
         <div class="form-group">
-          <label for="reg-name">Full Name</label>
-          <input type="text" id="reg-name" required autocomplete="name"
-                 placeholder="Your name">
+          <label for="reg-kindswap-id">Choose your KindSwap ID *</label>
+          <div class="id-input-wrap">
+            <span class="input-icon" style="z-index:2;">@</span>
+            <input
+              type="text"
+              id="reg-kindswap-id"
+              class="form-input has-icon"
+              required
+              autocomplete="username"
+              placeholder="e.g. Anushka123"
+              maxlength="30"
+            />
+            <span class="id-suffix-badge">@ KindSwap</span>
+          </div>
+          <div class="id-availability-box" id="id-availability-msg">
+            <span style="color:var(--muted-ink);">3–30 characters. Letters, numbers, and underscores.</span>
+          </div>
         </div>
-        <div class="form-group">
-          <label for="reg-email">Email Address</label>
-          <input type="email" id="reg-email" required autocomplete="email"
-                 placeholder="you@example.com">
-        </div>
+
+        <!-- Password with Reveal Toggle and Requirements -->
         <div class="form-row">
           <div class="form-group">
-            <label for="reg-password">Password</label>
+            <label for="reg-password">Set Password *</label>
             <div class="input-password-wrap">
-              <input type="password" id="reg-password" required autocomplete="new-password"
-                     placeholder="Min. 8 characters">
+              <input
+                type="password"
+                id="reg-password"
+                class="form-input"
+                required
+                autocomplete="new-password"
+                placeholder="Min. 8 chars"
+              />
               <button type="button" class="toggle-pw" data-target="reg-password" aria-label="Show password">👁</button>
             </div>
           </div>
           <div class="form-group">
-            <label for="reg-confirm">Confirm Password</label>
+            <label for="reg-confirm">Confirm Password *</label>
             <div class="input-password-wrap">
-              <input type="password" id="reg-confirm" required autocomplete="new-password"
-                     placeholder="Repeat password">
+              <input
+                type="password"
+                id="reg-confirm"
+                class="form-input"
+                required
+                autocomplete="new-password"
+                placeholder="Repeat password"
+              />
               <button type="button" class="toggle-pw" data-target="reg-confirm" aria-label="Show password">👁</button>
             </div>
           </div>
         </div>
-        <p class="pw-hint">Min 8 chars · 1 uppercase · 1 lowercase · 1 number</p>
-        <div class="form-group">
-          <label for="reg-state">Location (State)</label>
-          <select id="reg-state" required>
-            <option value="" disabled selected>Select your state</option>
-            ${getStatesOptions()}
-          </select>
+
+        <!-- Password live checklist -->
+        <div class="pw-checklist" id="pw-checklist">
+          <div class="pw-req-item" id="req-length">
+            <span class="req-icon">○</span> At least 8 characters
+          </div>
+          <div class="pw-req-item" id="req-char">
+            <span class="req-icon">○</span> At least 1 number or special character
+          </div>
         </div>
+
+        <!-- Role Selector -->
         <div class="form-group">
-          <label>Your role in the community</label>
+          <label>Your Role in KindSwap</label>
           <div class="role-options">
             <div class="role-card">
-              <input type="radio" id="role-donor" name="reg-role" value="donor" checked>
+              <input type="radio" id="role-donor" name="reg-role" value="donor" checked />
               <label for="role-donor">
                 <span class="role-icon">🎁</span>
                 <span class="role-title">Donor</span>
-                <span class="role-desc">I want to share items</span>
+                <span class="role-desc">Share items</span>
               </label>
             </div>
             <div class="role-card">
-              <input type="radio" id="role-ngo" name="reg-role" value="ngo">
+              <input type="radio" id="role-ngo" name="reg-role" value="ngo" />
               <label for="role-ngo">
                 <span class="role-icon">🤝</span>
                 <span class="role-title">NGO / Volunteer</span>
-                <span class="role-desc">I need items for community</span>
+                <span class="role-desc">Help community</span>
               </label>
             </div>
             <div class="role-card">
-              <input type="radio" id="role-admin" name="reg-role" value="admin">
+              <input type="radio" id="role-admin" name="reg-role" value="admin" />
               <label for="role-admin">
                 <span class="role-icon">🛠️</span>
                 <span class="role-title">Admin</span>
-                <span class="role-desc">I manage assignments</span>
+                <span class="role-desc">Platform</span>
               </label>
             </div>
           </div>
         </div>
 
-        <!-- Admin code field — shown only when Admin is selected -->
+        <!-- Admin code field — shown only when Admin role is selected -->
         <div class="form-group" id="admin-code-wrap" style="display:none;">
-          <label for="reg-admin-code">Admin Registration Code</label>
-          <input type="password" id="reg-admin-code" placeholder="Enter admin code"
-                 autocomplete="off">
+          <label for="reg-admin-code">Admin Passkey</label>
+          <div class="input-wrap">
+            <span class="input-icon">🔑</span>
+            <input
+              type="password"
+              id="reg-admin-code"
+              class="form-input has-icon"
+              placeholder="Enter administrator passkey"
+              autocomplete="off"
+            />
+          </div>
         </div>
 
-        <div class="form-error" id="register-error"></div>
-        <button type="submit" class="btn btn-primary btn-block" id="register-submit">Create Account</button>
+        <div class="form-error" id="register-error" style="display:none;"></div>
+
+        <button type="submit" class="btn btn-primary btn-block" id="register-submit" style="margin-top: 14px;">
+          <span>Next: Tell us about yourself</span>
+          <span class="btn-arrow">→</span>
+        </button>
       </form>
+
       <div class="auth-toggle">
-        Already have an account? <a href="#" id="go-login">Sign In</a>
+        Already have a KindSwap ID? <a href="/login" id="go-login">Sign in here</a>
       </div>
     </div>
   `;
 }
 
-function renderOTP() {
-  const maskedEmail = _pendingEmail.replace(/(.{2}).+(@.+)/, '$1***$2');
-  return `
-    <div class="auth-screen" id="screen-otp">
-      <div class="auth-form-header">
-        <div class="otp-icon">📧</div>
-        <h2>Verify your email</h2>
-        <p>We sent a 6-digit code to<br><strong>${maskedEmail}</strong></p>
-      </div>
+function handleAuthSuccess(user, navigate) {
+  window.currentUser = user;
 
-      <div class="otp-inputs-wrap">
-        <div class="otp-inputs" id="otp-inputs">
-          <input type="text" class="otp-digit" maxlength="1" inputmode="numeric" pattern="[0-9]" autocomplete="one-time-code" id="otp-0">
-          <input type="text" class="otp-digit" maxlength="1" inputmode="numeric" pattern="[0-9]" id="otp-1">
-          <input type="text" class="otp-digit" maxlength="1" inputmode="numeric" pattern="[0-9]" id="otp-2">
-          <span class="otp-sep">—</span>
-          <input type="text" class="otp-digit" maxlength="1" inputmode="numeric" pattern="[0-9]" id="otp-3">
-          <input type="text" class="otp-digit" maxlength="1" inputmode="numeric" pattern="[0-9]" id="otp-4">
-          <input type="text" class="otp-digit" maxlength="1" inputmode="numeric" pattern="[0-9]" id="otp-5">
-        </div>
-      </div>
-
-      <div class="otp-timer" id="otp-timer">Code expires in <span id="otp-countdown">10:00</span></div>
-      <div class="form-error" id="otp-error"></div>
-
-      <button class="btn btn-primary btn-block" id="otp-submit">Verify Code</button>
-
-      <div class="otp-resend">
-        <span id="otp-resend-text">Didn't receive the code?</span>
-        <button id="otp-resend-btn" class="link-btn" disabled>Resend code</button>
-        <span id="otp-resend-cooldown" class="resend-cooldown"></span>
-      </div>
-
-      <div class="auth-toggle">
-        <a href="#" id="otp-back">← Back to login</a>
-      </div>
-    </div>
-  `;
+  // Check if profile details (name, age, city) are incomplete
+  if (!user.name || !user.age || !user.city) {
+    navigate('profile-setup');
+  } else {
+    // Returning user with completed profile -> direct to Manus dashboard
+    navigate('welcome');
+  }
 }
 
 export const AuthView = {
+  setScreen(scr) {
+    _screen = scr === 'register' ? 'register' : 'login';
+  },
+
   render() {
     const panels = {
-      login:    renderLogin(),
-      register: renderRegister(),
-      otp:      renderOTP()
+      login: renderLogin(),
+      register: renderRegister()
     };
+
     return `
       <div class="auth-page">
-        <!-- Left: Illustration panel -->
+        <!-- Left: Brand & Community Showcase Panel -->
         <div class="auth-illustration">
           <div class="auth-brand">
-            <div class="logo-icon">💬🔄</div>
+            <div class="logo-mark">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M8 3 4 7l4 4"/><path d="M4 7h16"/><path d="m16 21 4-4-4-4"/><path d="M20 17H4"/>
+              </svg>
+            </div>
             <h1>Kind<span>Swap</span></h1>
           </div>
+
           <div class="illustration-content">
-            <div class="illustration-image">
-              <div class="illus-circle illus-yellow"></div>
-              <div class="illus-circle illus-lavender"></div>
-              <div class="illus-person person-left">
-                <div class="person-body">🧍</div>
-                <div class="person-item item-give">📦</div>
+            <h3 class="illus-tagline">Small swaps make a big difference in India.</h3>
+            <p class="illus-subtext">Join neighbors, volunteers, and NGOs sharing books, warm clothing, household essentials, and pantry staples with care.</p>
+
+            <div class="illus-cards-showcase">
+              <div class="illus-pill p1">
+                <span class="pill-icon">📚</span>
+                <div>
+                  <strong>Books & Supplies</strong>
+                  <small>For students in need</small>
+                </div>
               </div>
-              <div class="illus-arrows">
-                <div class="arrow arrow-right">→</div>
-                <div class="arrow arrow-left">←</div>
+              <div class="illus-pill p2">
+                <span class="pill-icon">👕</span>
+                <div>
+                  <strong>Warm Clothing</strong>
+                  <small>Clean & rehomed gently</small>
+                </div>
               </div>
-              <div class="illus-person person-right">
-                <div class="person-body">🧍</div>
-                <div class="person-item item-receive">📚</div>
+              <div class="illus-pill p3">
+                <span class="pill-icon">🍲</span>
+                <div>
+                  <strong>Pantry Staples</strong>
+                  <small>Zero food waste circle</small>
+                </div>
               </div>
             </div>
-            <div class="illus-bubbles">
-              <div class="illus-bubble b1">📍 Maharashtra</div>
-              <div class="illus-bubble b2">💛 Sharing</div>
-              <div class="illus-bubble b3">🌱 Community</div>
+
+            <div class="illus-quote-card">
+              <div class="quote-stars">★★★★★</div>
+              <p>"KindSwap connects people who want to help directly with those who need it most, with zero friction."</p>
+              <div class="quote-author">
+                <div class="quote-avatar">IN</div>
+                <div>
+                  <strong>Pan-India Community Circle</strong>
+                  <small>Verified Exchange Network</small>
+                </div>
+              </div>
             </div>
           </div>
-          <p class="auth-tagline">Give what you can.<br>Get what you need.</p>
         </div>
 
-        <!-- Right: Form panel -->
+        <!-- Right: Dynamic Auth Form Card Panel -->
         <div class="auth-form-panel">
           <div class="auth-card glass-panel">
-            ${panels[_screen]}
+            ${panels[_screen] || panels.login}
           </div>
         </div>
       </div>
@@ -229,62 +288,66 @@ export const AuthView = {
   },
 
   attachEvents(navigate, reRender) {
-    // ── Toggle password visibility ──────────────────────────────────────────
+    // Password visibility toggle
     document.querySelectorAll('.toggle-pw').forEach(btn => {
       btn.addEventListener('click', () => {
-        const inp = document.getElementById(btn.dataset.target);
+        const targetId = btn.dataset.target;
+        const inp = document.getElementById(targetId);
         if (!inp) return;
         inp.type = inp.type === 'password' ? 'text' : 'password';
         btn.textContent = inp.type === 'password' ? '👁' : '🙈';
       });
     });
 
-    if (_screen === 'login') this._attachLoginEvents(navigate);
-    if (_screen === 'register') this._attachRegisterEvents(reRender);
-    if (_screen === 'otp') this._attachOTPEvents(navigate, reRender);
+    if (_screen === 'login') {
+      this._attachLoginEvents(navigate, reRender);
+    } else {
+      this._attachRegisterEvents(navigate, reRender);
+    }
   },
 
-  _attachLoginEvents(navigate) {
-    document.getElementById('go-register')?.addEventListener('click', e => {
+  _attachLoginEvents(navigate, reRender) {
+    document.getElementById('go-register')?.addEventListener('click', (e) => {
       e.preventDefault();
       _screen = 'register';
-      // Re-render without full app re-render (just the auth card)
-      this._rerenderCard(navigate, () => {});
+      this._rerenderCard(navigate, reRender);
     });
 
-    document.getElementById('login-form')?.addEventListener('submit', async e => {
+    const form = document.getElementById('login-form');
+    form?.addEventListener('submit', async (e) => {
       e.preventDefault();
-      const email    = document.getElementById('login-email').value.trim();
-      const password = document.getElementById('login-password').value;
-      const errEl    = document.getElementById('login-error');
-      const btn      = document.getElementById('login-submit');
+      const kindswapId = document.getElementById('login-kindswap-id')?.value.trim();
+      const password = document.getElementById('login-password')?.value;
+      const errEl = document.getElementById('login-error');
+      const btn = document.getElementById('login-submit');
 
-      errEl.textContent = '';
+      if (errEl) {
+        errEl.textContent = '';
+        errEl.style.display = 'none';
+      }
+
+      if (!kindswapId || !password) {
+        showError(errEl, 'Please enter both your KindSwap ID and password.');
+        return;
+      }
+
       btn.disabled = true;
-      btn.textContent = 'Signing in…';
+      btn.innerHTML = `<span class="spinner-dot"></span><span>Signing in…</span>`;
 
       try {
-        const user = await AuthService.login(email, password);
-        window.currentUser = user;
-        Toast.show('Signed in successfully!', 'success');
-        navigate('menu');
+        const user = await AuthService.login(kindswapId, password);
+        Toast.show('Signed in successfully!', `Welcome back, ${user.name || user.kindswapId}!`);
+        handleAuthSuccess(user, navigate);
       } catch (err) {
-        if (err.requiresVerification) {
-          _pendingEmail = email;
-          _screen = 'otp';
-          this._rerenderCard(navigate, () => {});
-          Toast.show('Please verify your email first.', 'error');
-        } else {
-          errEl.textContent = err.message;
-        }
+        showError(errEl, err.message || 'Incorrect KindSwap ID or password.');
         btn.disabled = false;
-        btn.textContent = 'Sign In';
+        btn.innerHTML = `<span>Sign In</span><span class="btn-arrow">→</span>`;
       }
     });
   },
 
-  _attachRegisterEvents(reRender) {
-    // Show/hide admin code field
+  _attachRegisterEvents(navigate, reRender) {
+    // Show/hide admin code input based on role radio
     document.querySelectorAll('input[name="reg-role"]').forEach(radio => {
       radio.addEventListener('change', () => {
         const wrap = document.getElementById('admin-code-wrap');
@@ -292,199 +355,171 @@ export const AuthView = {
       });
     });
 
-    document.getElementById('go-login')?.addEventListener('click', e => {
+    document.getElementById('go-login')?.addEventListener('click', (e) => {
       e.preventDefault();
       _screen = 'login';
-      this._rerenderCard(null, reRender);
+      this._rerenderCard(navigate, reRender);
     });
 
-    document.getElementById('register-form')?.addEventListener('submit', async e => {
-      e.preventDefault();
-      const name          = document.getElementById('reg-name').value.trim();
-      const email         = document.getElementById('reg-email').value.trim();
-      const password      = document.getElementById('reg-password').value;
-      const confirmPw     = document.getElementById('reg-confirm').value;
-      const state         = document.getElementById('reg-state').value;
-      const role          = document.querySelector('input[name="reg-role"]:checked')?.value;
-      const adminCode     = document.getElementById('reg-admin-code')?.value || '';
-      const errEl         = document.getElementById('register-error');
-      const btn           = document.getElementById('register-submit');
+    const idInput = document.getElementById('reg-kindswap-id');
+    const idMsgEl = document.getElementById('id-availability-msg');
+    const pwInput = document.getElementById('reg-password');
+    const reqLen = document.getElementById('req-length');
+    const reqChar = document.getElementById('req-char');
 
-      errEl.textContent = '';
+    // Live password checklist
+    pwInput?.addEventListener('input', () => {
+      const val = pwInput.value;
+      const isLenValid = val.length >= 8;
+      const hasNumOrSpecial = /[0-9!@#$%^&*()_+\-=[\]{};':"\\|,.<>/?]/.test(val);
 
-      // Client-side quick checks (server validates again)
-      if (!name)  { errEl.textContent = 'Please enter your name.'; return; }
-      if (!state) { errEl.textContent = 'Please select your state.'; return; }
-
-      btn.disabled = true;
-      btn.textContent = 'Creating account…';
-
-      try {
-        await AuthService.register(email, password, confirmPw, name, role, state, adminCode);
-        _pendingEmail = email;
-        _pendingName  = name;
-        _screen = 'otp';
-        this._rerenderCard(null, reRender);
-        Toast.show('Account created! Check your email for the verification code.', 'success');
-      } catch (err) {
-        errEl.textContent = err.message;
-        btn.disabled = false;
-        btn.textContent = 'Create Account';
+      if (reqLen) {
+        reqLen.classList.toggle('met', isLenValid);
+        reqLen.querySelector('.req-icon').textContent = isLenValid ? '✓' : '○';
+      }
+      if (reqChar) {
+        reqChar.classList.toggle('met', hasNumOrSpecial);
+        reqChar.querySelector('.req-icon').textContent = hasNumOrSpecial ? '✓' : '○';
       }
     });
-  },
 
-  _attachOTPEvents(navigate, reRender) {
-    // ── OTP digit inputs — auto-focus, backspace, paste ──────────────────────
-    const digits = document.querySelectorAll('.otp-digit');
+    // Real-time debounced KindSwap ID availability checker
+    idInput?.addEventListener('input', () => {
+      if (_idCheckTimeout) clearTimeout(_idCheckTimeout);
 
-    digits.forEach((inp, idx) => {
-      inp.addEventListener('input', () => {
-        inp.value = inp.value.replace(/\D/, '');
-        if (inp.value && idx < digits.length - 1) {
-          digits[idx + 1].focus();
+      const val = idInput.value.trim();
+      if (!val) {
+        _isIdAvailable = null;
+        if (idMsgEl) {
+          idMsgEl.innerHTML = `<span style="color:var(--muted-ink);">3–30 characters. Letters, numbers, and underscores.</span>`;
         }
-      });
-      inp.addEventListener('keydown', e => {
-        if (e.key === 'Backspace' && !inp.value && idx > 0) {
-          digits[idx - 1].focus();
+        return;
+      }
+
+      if (val.length < 3) {
+        _isIdAvailable = false;
+        if (idMsgEl) {
+          idMsgEl.innerHTML = `<span class="id-status-taken">ID must be at least 3 characters.</span>`;
         }
-      });
+        return;
+      }
+
+      if (!/^[a-zA-Z0-9_.-]+$/.test(val)) {
+        _isIdAvailable = false;
+        if (idMsgEl) {
+          idMsgEl.innerHTML = `<span class="id-status-taken">Only letters, numbers, hyphens, and underscores allowed.</span>`;
+        }
+        return;
+      }
+
+      if (idMsgEl) {
+        idMsgEl.innerHTML = `<span class="id-status-checking"><span class="spinner-dot" style="border-color:#b5975a;border-top-color:transparent;"></span> Checking availability…</span>`;
+      }
+
+      _idCheckTimeout = setTimeout(async () => {
+        try {
+          const res = await AuthService.checkKindswapId(val);
+          if (res.available) {
+            _isIdAvailable = true;
+            if (idMsgEl) {
+              idMsgEl.innerHTML = `<span class="id-status-available">✓ KindSwap ID is available</span>`;
+            }
+          } else {
+            _isIdAvailable = false;
+            if (idMsgEl) {
+              idMsgEl.innerHTML = `<span class="id-status-taken">✕ This KindSwap ID is already taken. Please choose another one.</span>`;
+            }
+          }
+        } catch {
+          // If network error, don't hard block
+          _isIdAvailable = null;
+        }
+      }, 350);
     });
 
-    // Paste handling
-    document.getElementById('otp-inputs')?.addEventListener('paste', e => {
+    const form = document.getElementById('register-form');
+    form?.addEventListener('submit', async (e) => {
       e.preventDefault();
-      const text = (e.clipboardData || window.clipboardData).getData('text').replace(/\D/g, '');
-      digits.forEach((inp, i) => { inp.value = text[i] || ''; });
-      digits[Math.min(text.length, digits.length - 1)].focus();
-    });
+      const kindswapId = idInput?.value.trim();
+      const password = pwInput?.value;
+      const confirmPw = document.getElementById('reg-confirm')?.value;
+      const role = document.querySelector('input[name="reg-role"]:checked')?.value || 'donor';
+      const adminCode = document.getElementById('reg-admin-code')?.value || '';
+      const errEl = document.getElementById('register-error');
+      const btn = document.getElementById('register-submit');
 
-    // Focus first digit
-    setTimeout(() => digits[0]?.focus(), 50);
-
-    // ── Countdown timer ───────────────────────────────────────────────────────
-    if (_otpTimer) clearInterval(_otpTimer);
-    const expiryMinutes = 10;
-    let secsLeft = expiryMinutes * 60;
-
-    const countdownEl = document.getElementById('otp-countdown');
-    const timerEl     = document.getElementById('otp-timer');
-    const resendBtn   = document.getElementById('otp-resend-btn');
-    const cooldownEl  = document.getElementById('otp-resend-cooldown');
-    const cooldownSecs = 60;
-    let resendCountdown = cooldownSecs;
-
-    // Enable resend after cooldown
-    let resendInterval = setInterval(() => {
-      resendCountdown--;
-      if (cooldownEl) cooldownEl.textContent = resendCountdown > 0 ? `(${resendCountdown}s)` : '';
-      if (resendCountdown <= 0) {
-        clearInterval(resendInterval);
-        if (resendBtn) resendBtn.disabled = false;
-        if (cooldownEl) cooldownEl.textContent = '';
+      if (errEl) {
+        errEl.textContent = '';
+        errEl.style.display = 'none';
       }
-    }, 1000);
 
-    _otpTimer = setInterval(() => {
-      secsLeft--;
-      const m = Math.floor(secsLeft / 60);
-      const s = secsLeft % 60;
-      if (countdownEl) countdownEl.textContent = `${m}:${s.toString().padStart(2, '0')}`;
-      if (secsLeft <= 0) {
-        clearInterval(_otpTimer);
-        if (timerEl) timerEl.textContent = 'Code has expired. Please request a new one.';
-        const submitBtn = document.getElementById('otp-submit');
-        if (submitBtn) submitBtn.disabled = true;
+      // Validations
+      if (!kindswapId || kindswapId.length < 3) {
+        showError(errEl, 'Please choose a KindSwap ID with at least 3 characters.');
+        idInput?.focus();
+        return;
       }
-    }, 1000);
 
-    // ── Verify OTP ────────────────────────────────────────────────────────────
-    document.getElementById('otp-submit')?.addEventListener('click', async () => {
-      const otp    = Array.from(digits).map(d => d.value).join('');
-      const errEl  = document.getElementById('otp-error');
-      const btn    = document.getElementById('otp-submit');
+      if (_isIdAvailable === false) {
+        showError(errEl, 'This KindSwap ID is already taken. Please choose another one.');
+        idInput?.focus();
+        return;
+      }
 
-      errEl.textContent = '';
+      if (!password || password.length < 8) {
+        showError(errEl, 'Password must be at least 8 characters long.');
+        pwInput?.focus();
+        return;
+      }
 
-      if (otp.length < 6) {
-        errEl.textContent = 'Please enter all 6 digits.';
+      if (password !== confirmPw) {
+        showError(errEl, 'Passwords do not match. Please re-check.');
+        document.getElementById('reg-confirm')?.focus();
+        return;
+      }
+
+      if (role === 'admin' && !adminCode) {
+        showError(errEl, 'Admin registration requires the administrator passkey.');
         return;
       }
 
       btn.disabled = true;
-      btn.textContent = 'Verifying…';
+      btn.innerHTML = `<span class="spinner-dot"></span><span>Creating your ID…</span>`;
 
       try {
-        const result = await AuthService.verifyOTP(_pendingEmail, otp);
-        clearInterval(_otpTimer);
-        window.currentUser = result.user;
-        Toast.show('Email verified! Welcome to KindSwap 🎉', 'success');
-        _screen = 'login';
-        navigate('menu');
+        const user = await AuthService.register({ kindswapId, password, confirmPassword: confirmPw, role, adminCode });
+        Toast.show('KindSwap ID created! 🎉', 'Now tell us a little about yourself.');
+        // Seamlessly progress to Page 2 (Profile Setup)
+        handleAuthSuccess(user, navigate);
       } catch (err) {
-        errEl.textContent = err.message;
-        // Shake animation
-        document.querySelector('.otp-inputs')?.classList.add('otp-shake');
-        setTimeout(() => document.querySelector('.otp-inputs')?.classList.remove('otp-shake'), 500);
-        digits.forEach(d => d.value = '');
-        digits[0]?.focus();
+        showError(errEl, err.message || 'Registration failed.');
         btn.disabled = false;
-        btn.textContent = 'Verify Code';
+        btn.innerHTML = `<span>Next: Tell us about yourself</span><span class="btn-arrow">→</span>`;
       }
-    });
-
-    // ── Resend OTP ────────────────────────────────────────────────────────────
-    resendBtn?.addEventListener('click', async () => {
-      const errEl = document.getElementById('otp-error');
-      errEl.textContent = '';
-      resendBtn.disabled = true;
-      resendBtn.textContent = 'Sending…';
-
-      try {
-        await AuthService.resendOTP(_pendingEmail);
-        Toast.show('New code sent! Check your email.', 'success');
-        // Reset countdown
-        secsLeft = expiryMinutes * 60;
-        resendCountdown = cooldownSecs;
-        if (cooldownEl) cooldownEl.textContent = `(${cooldownSecs}s)`;
-        resendBtn.textContent = 'Resend code';
-        resendInterval = setInterval(() => {
-          resendCountdown--;
-          if (cooldownEl) cooldownEl.textContent = resendCountdown > 0 ? `(${resendCountdown}s)` : '';
-          if (resendCountdown <= 0) {
-            clearInterval(resendInterval);
-            resendBtn.disabled = false;
-            if (cooldownEl) cooldownEl.textContent = '';
-          }
-        }, 1000);
-      } catch (err) {
-        errEl.textContent = err.message;
-        resendBtn.disabled = false;
-        resendBtn.textContent = 'Resend code';
-      }
-    });
-
-    // ── Back link ─────────────────────────────────────────────────────────────
-    document.getElementById('otp-back')?.addEventListener('click', e => {
-      e.preventDefault();
-      clearInterval(_otpTimer);
-      _screen = 'login';
-      this._rerenderCard(navigate, reRender);
     });
   },
 
-  // Re-render just the auth card content without a full app re-render
   _rerenderCard(navigate, reRender) {
     const card = document.querySelector('.auth-card');
-    if (!card) { reRender && reRender(); return; }
+    if (!card) {
+      if (typeof reRender === 'function') reRender();
+      return;
+    }
 
-    const screens = {
-      login:    renderLogin(),
-      register: renderRegister(),
-      otp:      renderOTP()
+    const panels = {
+      login: renderLogin(),
+      register: renderRegister()
     };
-    card.innerHTML = screens[_screen];
+    card.innerHTML = panels[_screen] || panels.login;
     this.attachEvents(navigate, reRender);
   }
 };
+
+function showError(el, msg) {
+  if (!el) return;
+  el.textContent = msg;
+  el.style.display = 'block';
+  el.classList.remove('form-shake');
+  void el.offsetWidth;
+  el.classList.add('form-shake');
+}
