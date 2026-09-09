@@ -1,31 +1,82 @@
 const { pool } = require('../config/db');
 
 const AuthQueries = {
-  findUserByEmail: async (email) => {
-    const [rows] = await pool.query('SELECT * FROM users WHERE email = ?', [email]);
-    return rows[0];
-  },
-  
-  findLoginByEmail: async (email) => {
-    const [rows] = await pool.query('SELECT * FROM login WHERE email = ?', [email]);
-    return rows[0];
+  // ─── User Queries ─────────────────────────────────────────────────────────
+
+  findUserByKindswapId: async (kindswapId) => {
+    if (!kindswapId) return null;
+    const [rows] = await pool.query(
+      `SELECT u.id, u.kindswap_id, u.password_hash, u.email, u.name, u.age, u.city, u.role, u.state, u.createdAt 
+       FROM users u 
+       WHERE LOWER(u.kindswap_id) = LOWER(?)`,
+      [kindswapId.trim()]
+    );
+    return rows[0] || null;
   },
 
-  createUser: async (user, password) => {
-    const { id, email, role, state } = user;
-    // Insert into users
-    await pool.query(
-      'INSERT INTO users (id, email, role, state) VALUES (?, ?, ?, ?) ON DUPLICATE KEY UPDATE role = VALUES(role), state = VALUES(state)',
-      [id, email, role, state]
+  checkKindswapIdExists: async (kindswapId) => {
+    if (!kindswapId) return false;
+    const [rows] = await pool.query(
+      'SELECT u.id FROM users u WHERE LOWER(u.kindswap_id) = LOWER(?)',
+      [kindswapId.trim()]
     );
-    
-    // Insert into login
-    await pool.query(
-      'INSERT INTO login (email, password) VALUES (?, ?) ON DUPLICATE KEY UPDATE password = VALUES(password)',
-      [email, password]
+    return rows.length > 0;
+  },
+
+  findUserById: async (id) => {
+    if (!id) return null;
+    const [rows] = await pool.query(
+      'SELECT u.id, u.kindswap_id, u.email, u.name, u.age, u.city, u.role, u.state, u.createdAt FROM users u WHERE u.id = ?',
+      [id]
     );
-    
-    return user;
+    return rows[0] || null;
+  },
+
+  findUserByEmail: async (email) => {
+    if (!email) return null;
+    const [rows] = await pool.query(
+      'SELECT u.id, u.kindswap_id, u.email, u.name, u.age, u.city, u.role, u.state, u.createdAt FROM users u WHERE LOWER(u.email) = LOWER(?)',
+      [email.trim()]
+    );
+    return rows[0] || null;
+  },
+
+  updateUserProfile: async (id, { name, age, city, state }) => {
+    const fields = [];
+    const values = [];
+
+    if (name !== undefined) {
+      fields.push('name = ?');
+      values.push(name);
+    }
+    if (age !== undefined) {
+      fields.push('age = ?');
+      values.push(age);
+    }
+    if (city !== undefined) {
+      fields.push('city = ?');
+      values.push(city);
+    }
+    if (state !== undefined) {
+      fields.push('state = ?');
+      values.push(state);
+    }
+
+    if (fields.length === 0) return;
+    values.push(id);
+
+    await pool.query(
+      `UPDATE users SET ${fields.join(', ')} WHERE id = ?`,
+      values
+    );
+  },
+
+  createUser: async ({ id, kindswap_id, password_hash, name, role, state, city, email }) => {
+    await pool.query(
+      `INSERT INTO users (id, kindswap_id, password_hash, name, role, state, city, email) 
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [id, kindswap_id, password_hash, name || null, role, state || 'India', city || null, email || null]
+    );
   }
 };
 
