@@ -143,25 +143,28 @@ The goal is to make the platform feel:
                            │
                            ▼
                          IMPACT 🌱
-🧩 Tech Stack
-Frontend
+```
+
+## 🧩 Tech Stack
+### Frontend
 HTML5
 CSS3
 Vanilla JavaScript
 Vite
-Backend
+### Backend
 Node.js
 Express.js
 REST APIs
-Database
+### Database
 MySQL
 mysql2
-Development Tools
+### Development Tools
 Git
 GitHub
 Nodemon
 dotenv
-📁 Project Structure
+## 📁 Project Structure
+```text
 KindSwap/
 │
 ├── frontend/
@@ -184,10 +187,10 @@ KindSwap/
 │
 ├── .gitignore
 └── README.md
-
+```
 The exact structure may evolve as the project continues to be developed.
 
-🚀 Getting Started
+##🚀 Getting Started
 1. Clone the repository
 git clone https://github.com/anushka1330/KindSwap.git
 cd KindSwap
@@ -224,8 +227,8 @@ npm run dev
 
 Then open the local Vite URL shown in the terminal.
 
-🧪 User Workflow
-Donor
+## 🧪 User Workflow
+### Donor
 Sign Up / Login
       ↓
 Donor Dashboard
@@ -239,7 +242,7 @@ NGO Requests Resource
 Admin Assigns Resource
       ↓
 Donor Delivers
-NGO / Volunteer
+### NGO / Volunteer
 Sign Up / Login
       ↓
 NGO Dashboard
@@ -251,7 +254,7 @@ Request Resource
 Admin Reviews Request
       ↓
 Resource Assigned
-Administrator
+### Administrator
 Login
  ↓
 Admin Dashboard
