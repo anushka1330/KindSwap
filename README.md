@@ -205,6 +205,7 @@ Install backend dependencies:
 
 cd ../backend
 npm install
+
 3. Configure environment variables
 
 Create the required .env files using the project's environment configuration.
@@ -268,7 +269,7 @@ Assign Donation
 Track Status
 📱 Responsive Design
 
-KindSwap is designed to work across:
+### KindSwap is designed to work across:
 
 🖥️ Desktop
 💻 Laptop
@@ -277,20 +278,29 @@ KindSwap is designed to work across:
 
 The interface adapts navigation, cards, forms, dashboards, and content layouts for different screen sizes.
 
-🔮 Future Improvements
+### 🔮 Future Improvements
 
 Planned improvements include:
 
 📧 Email OTP authentication
+
 🔔 Real-time notifications
+
 📊 Advanced impact analytics
+
 🗺️ Privacy-friendly community network visualization
+
 💬 Community messaging
+
 🏆 Trust and contribution badges
+
 📈 Donation impact tracking
+
 🔒 Enhanced authentication and security
+
 ☁️ Production deployment
-🎓 Academic Project
+
+### 🎓 Academic Project
 
 KindSwap is developed as a Final Year Project exploring how technology can support community resource sharing and improve the connection between donors and organizations.
 
@@ -304,19 +314,20 @@ Location-based matching
 User experience design
 Responsive web development
 Git-based development workflow
-🌱 Vision
+
+### 🌱 Vision
 
 A world where useful resources find the people who need them.
 
 KindSwap aims to make giving simpler, discovering resources easier, and community impact more visible.
 
-👩‍💻 Developer
+### 👩‍💻 Developer
 
 Anushka
 
 Final Year Project · KindSwap
 
-📄 License
+### 📄 License
 
 This project is developed for academic and educational purposes.
 
