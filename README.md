@@ -269,7 +269,7 @@ Assign Donation
 Track Status
 📱 Responsive Design
 
-### KindSwap is designed to work across:
+## KindSwap is designed to work across:
 
 🖥️ Desktop
 💻 Laptop
@@ -278,7 +278,7 @@ Track Status
 
 The interface adapts navigation, cards, forms, dashboards, and content layouts for different screen sizes.
 
-### 🔮 Future Improvements
+## 🔮 Future Improvements
 
 Planned improvements include:
 
@@ -300,7 +300,7 @@ Planned improvements include:
 
 ☁️ Production deployment
 
-### 🎓 Academic Project
+## 🎓 Academic Project
 
 KindSwap is developed as a Final Year Project exploring how technology can support community resource sharing and improve the connection between donors and organizations.
 
@@ -315,24 +315,24 @@ User experience design
 Responsive web development
 Git-based development workflow
 
-### 🌱 Vision
+## 🌱 Vision
 
 A world where useful resources find the people who need them.
 
 KindSwap aims to make giving simpler, discovering resources easier, and community impact more visible.
 
-### 👩‍💻 Developer
+## 👩‍💻 Developer
 
 Anushka
 
 Final Year Project · KindSwap
 
-### 📄 License
+## 📄 License
 
 This project is developed for academic and educational purposes.
 
 
-### ✨ One thing I'd add later
+## ✨ One thing I'd add later
 
 Once your website is looking good, put a **real screenshot/GIF of KindSwap at the very top** of the README. That will make the GitHub repository look *much* more polished than a text-only README.
 
